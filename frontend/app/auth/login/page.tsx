@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui';
-import { Mail, Lock, LogIn, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, LogIn, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
+import Navbar from '@/components/layout/Navbar';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -72,19 +73,17 @@ export default function LoginPage() {
         }}
       />
 
-      <div className="relative z-10 max-w-md w-full space-y-8">
-        <motion.div
-          initial={{ y: -20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.5 }}
-        >
-          <Link
-            href="/"
-            className="inline-flex items-center text-white/80 hover:text-white mb-6 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to home
-          </Link>
+      <div className="relative z-10 w-full">
+        {/* Navbar */}
+        <Navbar />
+
+        <div className="flex items-center justify-center min-h-screen pt-20">
+          <div className="max-w-md w-full space-y-8">
+            <motion.div
+              initial={{ y: -20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.5 }}
+            >
           <div className="text-center">
             <motion.div
               className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-secondary-400 to-primary-400 mb-4"
@@ -251,6 +250,8 @@ export default function LoginPage() {
             </motion.div>
           </form>
         </motion.div>
+          </div>
+        </div>
       </div>
     </div>
   );

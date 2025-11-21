@@ -6,6 +6,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { userApi } from '@/lib/api';
 import { Button, Card } from '@/components/ui';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { motion } from 'framer-motion';
+import { ArrowLeft, ArrowRight, User, Bell, Globe, Palette, Link2, Save } from 'lucide-react';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -41,8 +44,12 @@ export default function SettingsPage() {
         }
 
         const prefsResponse = await userApi.getPreferences();
-        if (prefsResponse.success && prefsResponse.data?.preferences) {
-          setPreferences(prefsResponse.data.preferences);
+        if (prefsResponse.success && prefsResponse.data) {
+          // Type assertion for preferences - API returns { preferences: {...} }
+          const preferences = (prefsResponse.data as any).preferences;
+          if (preferences) {
+            setPreferences(preferences);
+          }
         }
       } catch (error) {
         console.error('Error loading settings:', error);
@@ -120,8 +127,15 @@ export default function SettingsPage() {
   if (isLoading) {
     return (
       <ProtectedRoute>
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        <div className="min-h-screen relative flex items-center justify-center overflow-hidden bg-gradient-to-br from-secondary-900/85 via-purple-900/80 to-primary-900/85">
+          <div className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-30"
+            style={{
+              backgroundImage: 'url(https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1920&q=80)',
+            }}
+          ></div>
+          <div className="relative z-10">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+          </div>
         </div>
       </ProtectedRoute>
     );
@@ -129,51 +143,122 @@ export default function SettingsPage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-neutral-50">
-        <nav className="bg-white border-b border-neutral-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between h-16">
-              <div className="flex items-center space-x-4">
-                <button
-                  onClick={() => router.push('/dashboard')}
-                  className="text-primary-600 hover:text-primary-700"
-                >
-                  ← Back to Dashboard
-                </button>
-                <h1 className="text-xl font-heading font-bold text-primary-600">
-                  Settings
-                </h1>
-              </div>
-              <div className="flex items-center">
-                <span className="text-sm text-neutral-600">{user?.email}</span>
-              </div>
-            </div>
-          </div>
-        </nav>
+      <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-secondary-900/85 via-purple-900/80 to-primary-900/85">
+        {/* Background with image overlay */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+          style={{
+            backgroundImage: 'url(https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1920&q=80)',
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-secondary-900/85 via-purple-900/80 to-primary-900/85"></div>
+        </div>
 
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Animated gradient orbs */}
+        <motion.div
+          className="absolute top-20 right-20 w-72 h-72 bg-secondary-400/20 rounded-full blur-3xl"
+          animate={{
+            x: [0, -100, 0],
+            y: [0, 50, 0],
+            scale: [1, 1.2, 1],
+          }}
+          transition={{
+            duration: 20,
+            repeat: Infinity,
+            ease: 'easeInOut',
+          }}
+        />
+        <motion.div
+          className="absolute bottom-20 left-20 w-96 h-96 bg-primary-400/20 rounded-full blur-3xl"
+          animate={{
+            x: [0, 100, 0],
+            y: [0, -50, 0],
+            scale: [1, 1.3, 1],
+          }}
+          transition={{
+            duration: 25,
+            repeat: Infinity,
+            ease: 'easeInOut',
+          }}
+        />
+
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Header */}
+          <motion.div className="mb-8 text-white" initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>
+            <Link href="/dashboard" className="inline-flex items-center text-white/80 hover:text-white mb-4 transition-colors">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Dashboard
+            </Link>
+            <h1 className="text-4xl font-heading font-bold mb-2">Settings</h1>
+            <p className="text-white/80">Manage your account settings and preferences</p>
+          </motion.div>
+
           {message && (
-            <div
-              className={`mb-6 rounded-lg p-4 ${
+            <motion.div
+              className={`mb-6 rounded-xl p-4 backdrop-blur-xl border ${
                 message.type === 'success'
-                  ? 'bg-success-50 border border-success-200 text-success-800'
-                  : 'bg-error-50 border border-error-200 text-error-800'
+                  ? 'bg-green-500/20 border-green-400/30 text-green-100'
+                  : 'bg-red-500/20 border-red-400/30 text-red-100'
               }`}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
             >
               {message.text}
-            </div>
+            </motion.div>
           )}
 
           <div className="space-y-6">
+            {/* Connected Accounts Link */}
+            <motion.div
+              className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg hover:border-primary-300 transition-all"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.1 }}
+              whileHover={{ y: -2 }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                    <Link2 className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-heading font-bold text-white mb-1">
+                      Connected Accounts
+                    </h2>
+                    <p className="text-white/70">
+                      Connect your social media accounts to start tracking analytics
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  href="/settings/accounts"
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-primary-500 to-secondary-500 text-white rounded-lg hover:from-primary-600 hover:to-secondary-600 transition-all shadow-lg shadow-primary-500/30 hover:shadow-xl"
+                >
+                  <span className="font-semibold">Manage Accounts</span>
+                  <ArrowRight className="w-5 h-5" />
+                </Link>
+              </div>
+            </motion.div>
+
             {/* Profile Settings */}
-            <Card>
-              <h2 className="text-2xl font-heading font-bold text-neutral-900 mb-6">
-                Profile Settings
-              </h2>
+            <motion.div
+              className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 border-2 border-white/20 shadow-lg"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
+                  <User className="w-5 h-5 text-white" />
+                </div>
+                <h2 className="text-2xl font-heading font-bold text-white">
+                  Profile Settings
+                </h2>
+              </div>
               <form onSubmit={handleSaveProfile} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="first_name" className="block text-sm font-medium text-neutral-700 mb-2">
+                    <label htmlFor="first_name" className="block text-sm font-medium text-white/90 mb-2">
                       First Name
                     </label>
                     <input
@@ -182,12 +267,12 @@ export default function SettingsPage() {
                       type="text"
                       value={profileData.first_name}
                       onChange={handleProfileChange}
-                      className="input w-full"
+                      className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
                     />
                   </div>
 
                   <div>
-                    <label htmlFor="last_name" className="block text-sm font-medium text-neutral-700 mb-2">
+                    <label htmlFor="last_name" className="block text-sm font-medium text-white/90 mb-2">
                       Last Name
                     </label>
                     <input
@@ -196,13 +281,13 @@ export default function SettingsPage() {
                       type="text"
                       value={profileData.last_name}
                       onChange={handleProfileChange}
-                      className="input w-full"
+                      className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label htmlFor="phone" className="block text-sm font-medium text-neutral-700 mb-2">
+                  <label htmlFor="phone" className="block text-sm font-medium text-white/90 mb-2">
                     Phone Number
                   </label>
                   <input
@@ -211,13 +296,13 @@ export default function SettingsPage() {
                     type="tel"
                     value={profileData.phone}
                     onChange={handleProfileChange}
-                    className="input w-full"
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
                     placeholder="+1 (555) 123-4567"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="timezone" className="block text-sm font-medium text-neutral-700 mb-2">
+                  <label htmlFor="timezone" className="block text-sm font-medium text-white/90 mb-2">
                     Timezone
                   </label>
                   <select
@@ -225,130 +310,180 @@ export default function SettingsPage() {
                     name="timezone"
                     value={profileData.timezone}
                     onChange={handleProfileChange}
-                    className="input w-full"
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
                   >
-                    <option value="UTC">UTC</option>
-                    <option value="America/New_York">Eastern Time (ET)</option>
-                    <option value="America/Chicago">Central Time (CT)</option>
-                    <option value="America/Denver">Mountain Time (MT)</option>
-                    <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                    <option value="UTC" className="bg-secondary-900">UTC</option>
+                    <option value="America/New_York" className="bg-secondary-900">Eastern Time (ET)</option>
+                    <option value="America/Chicago" className="bg-secondary-900">Central Time (CT)</option>
+                    <option value="America/Denver" className="bg-secondary-900">Mountain Time (MT)</option>
+                    <option value="America/Los_Angeles" className="bg-secondary-900">Pacific Time (PT)</option>
                   </select>
                 </div>
 
-                <div className="flex justify-end">
-                  <Button type="submit" variant="primary" isLoading={isSaving}>
-                    Save Profile
-                  </Button>
+                <div className="flex justify-end pt-4">
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-primary-500 to-secondary-500 text-white rounded-lg hover:from-primary-600 hover:to-secondary-600 transition-all shadow-lg shadow-primary-500/30 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSaving ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>Save Profile</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </form>
-            </Card>
+            </motion.div>
 
             {/* Preferences */}
-            <Card>
-              <h2 className="text-2xl font-heading font-bold text-neutral-900 mb-6">
-                Preferences
-              </h2>
-              <form onSubmit={handleSavePreferences} className="space-y-4">
+            <motion.div
+              className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 border-2 border-white/20 shadow-lg"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.3 }}
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                  <Bell className="w-5 h-5 text-white" />
+                </div>
+                <h2 className="text-2xl font-heading font-bold text-white">
+                  Preferences
+                </h2>
+              </div>
+              <form onSubmit={handleSavePreferences} className="space-y-6">
                 <div>
-                  <h3 className="text-lg font-semibold text-neutral-800 mb-3">Notifications</h3>
-                  <div className="space-y-3">
-                    <label className="flex items-center">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Bell className="w-5 h-5 text-white/80" />
+                    <h3 className="text-lg font-semibold text-white">Notifications</h3>
+                  </div>
+                  <div className="space-y-3 pl-7">
+                    <label className="flex items-center cursor-pointer group">
                       <input
                         type="checkbox"
                         name="notification_email"
                         checked={preferences.notification_email}
                         onChange={handlePreferenceChange}
-                        className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-neutral-300 rounded"
+                        className="h-5 w-5 text-primary-600 focus:ring-primary-500 border-white/30 rounded bg-white/10 checked:bg-primary-500"
                       />
-                      <span className="ml-2 text-sm text-neutral-700">Email notifications</span>
+                      <span className="ml-3 text-sm text-white/90 group-hover:text-white transition-colors">Email notifications</span>
                     </label>
 
-                    <label className="flex items-center">
+                    <label className="flex items-center cursor-pointer group">
                       <input
                         type="checkbox"
                         name="notification_push"
                         checked={preferences.notification_push}
                         onChange={handlePreferenceChange}
-                        className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-neutral-300 rounded"
+                        className="h-5 w-5 text-primary-600 focus:ring-primary-500 border-white/30 rounded bg-white/10 checked:bg-primary-500"
                       />
-                      <span className="ml-2 text-sm text-neutral-700">Push notifications</span>
+                      <span className="ml-3 text-sm text-white/90 group-hover:text-white transition-colors">Push notifications</span>
                     </label>
 
-                    <label className="flex items-center">
+                    <label className="flex items-center cursor-pointer group">
                       <input
                         type="checkbox"
                         name="notification_sms"
                         checked={preferences.notification_sms}
                         onChange={handlePreferenceChange}
-                        className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-neutral-300 rounded"
+                        className="h-5 w-5 text-primary-600 focus:ring-primary-500 border-white/30 rounded bg-white/10 checked:bg-primary-500"
                       />
-                      <span className="ml-2 text-sm text-neutral-700">SMS notifications</span>
+                      <span className="ml-3 text-sm text-white/90 group-hover:text-white transition-colors">SMS notifications</span>
                     </label>
                   </div>
                 </div>
 
                 <div>
-                  <label htmlFor="email_digest_frequency" className="block text-sm font-medium text-neutral-700 mb-2">
-                    Email Digest Frequency
-                  </label>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Globe className="w-5 h-5 text-white/80" />
+                    <label htmlFor="email_digest_frequency" className="text-sm font-medium text-white/90">
+                      Email Digest Frequency
+                    </label>
+                  </div>
                   <select
                     id="email_digest_frequency"
                     name="email_digest_frequency"
                     value={preferences.email_digest_frequency}
                     onChange={handlePreferenceChange}
-                    className="input w-full"
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
                   >
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                    <option value="never">Never</option>
+                    <option value="daily" className="bg-secondary-900">Daily</option>
+                    <option value="weekly" className="bg-secondary-900">Weekly</option>
+                    <option value="monthly" className="bg-secondary-900">Monthly</option>
+                    <option value="never" className="bg-secondary-900">Never</option>
                   </select>
                 </div>
 
                 <div>
-                  <label htmlFor="preferred_language" className="block text-sm font-medium text-neutral-700 mb-2">
-                    Preferred Language
-                  </label>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Globe className="w-5 h-5 text-white/80" />
+                    <label htmlFor="preferred_language" className="text-sm font-medium text-white/90">
+                      Preferred Language
+                    </label>
+                  </div>
                   <select
                     id="preferred_language"
                     name="preferred_language"
                     value={preferences.preferred_language}
                     onChange={handlePreferenceChange}
-                    className="input w-full"
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
                   >
-                    <option value="en">English</option>
-                    <option value="es">Spanish</option>
-                    <option value="fr">French</option>
-                    <option value="de">German</option>
+                    <option value="en" className="bg-secondary-900">English</option>
+                    <option value="es" className="bg-secondary-900">Spanish</option>
+                    <option value="fr" className="bg-secondary-900">French</option>
+                    <option value="de" className="bg-secondary-900">German</option>
                   </select>
                 </div>
 
                 <div>
-                  <label htmlFor="theme" className="block text-sm font-medium text-neutral-700 mb-2">
-                    Theme
-                  </label>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Palette className="w-5 h-5 text-white/80" />
+                    <label htmlFor="theme" className="text-sm font-medium text-white/90">
+                      Theme
+                    </label>
+                  </div>
                   <select
                     id="theme"
                     name="theme"
                     value={preferences.theme}
                     onChange={handlePreferenceChange}
-                    className="input w-full"
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
                   >
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
-                    <option value="auto">Auto</option>
+                    <option value="light" className="bg-secondary-900">Light</option>
+                    <option value="dark" className="bg-secondary-900">Dark</option>
+                    <option value="auto" className="bg-secondary-900">Auto</option>
                   </select>
                 </div>
 
-                <div className="flex justify-end">
-                  <Button type="submit" variant="primary" isLoading={isSaving}>
-                    Save Preferences
-                  </Button>
+                <div className="flex justify-end pt-4">
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-primary-500 to-secondary-500 text-white rounded-lg hover:from-primary-600 hover:to-secondary-600 transition-all shadow-lg shadow-primary-500/30 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSaving ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>Save Preferences</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </form>
-            </Card>
+            </motion.div>
           </div>
-        </main>
+        </div>
       </div>
     </ProtectedRoute>
   );

@@ -3,9 +3,12 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes';
 import userRoutes from './routes/userRoutes';
+import socialRoutes from './routes/socialRoutes';
+import dataCollectionRoutes from './routes/dataCollectionRoutes';
 import { testConnection } from './config/database';
 import { connectRedis } from './config/redis';
 import { rateLimiter } from './middleware/rateLimiter';
+import { schedulerService } from './services/SchedulerService';
 
 dotenv.config();
 
@@ -41,6 +44,8 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/social', socialRoutes);
+app.use('/api/data', dataCollectionRoutes);
 
 // Start server
 app.listen(PORT, async () => {
@@ -52,6 +57,11 @@ app.listen(PORT, async () => {
   // Connect to Redis (optional)
   if (process.env.REDIS_HOST) {
     await connectRedis();
+  }
+
+  // Start scheduler service (only in production or if enabled)
+  if (process.env.ENABLE_SCHEDULER !== 'false') {
+    schedulerService.start();
   }
 });
 

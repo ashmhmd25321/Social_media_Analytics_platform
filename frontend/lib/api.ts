@@ -2,6 +2,8 @@
  * API Client Utilities
  */
 
+import { authStorage } from './auth';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
 
 export interface ApiResponse<T = any> {
@@ -22,9 +24,7 @@ class ApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
-    const token = typeof window !== 'undefined' 
-      ? localStorage.getItem('accessToken') 
-      : null;
+    const token = authStorage.getAccessToken();
 
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
@@ -33,6 +33,9 @@ class ApiClient {
 
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
+    } else {
+      // Don't throw error, let the backend handle authentication
+      console.warn('No access token found for request to:', endpoint);
     }
 
     try {
@@ -42,7 +45,13 @@ class ApiClient {
         credentials: 'include',
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        // If response is not JSON, return error
+        throw new Error(`Invalid response format: ${response.statusText}`);
+      }
 
       if (!response.ok) {
         throw new Error(data.message || 'Request failed');
@@ -81,6 +90,9 @@ class ApiClient {
 }
 
 export const apiClient = new ApiClient(API_BASE_URL);
+
+// Default export for backward compatibility
+export default apiClient;
 
 // Auth API endpoints
 export const authApi = {
