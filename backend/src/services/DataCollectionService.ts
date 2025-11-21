@@ -2,6 +2,8 @@ import { UserSocialAccount } from '../models/SocialPlatform';
 import { SocialPost, PostEngagementMetrics, FollowerMetrics } from '../models/Post';
 import { postModel, engagementMetricsModel, followerMetricsModel } from '../models/Post';
 import { dataCollectionJobModel, apiRateLimitModel } from '../models/DataCollection';
+import { nlpService } from './NLPService';
+import { pool } from '../config/database';
 
 export interface PlatformData {
   posts: SocialPost[];
@@ -63,6 +65,46 @@ class DataCollectionService {
         try {
           const postId = await postModel.upsert(post);
           itemsUpdated++;
+
+          // Analyze sentiment and extract NLP data if content exists
+          if (post.content) {
+            try {
+              const sentiment = nlpService.analyzeSentiment(post.content);
+              const keywords = nlpService.extractKeywords(post.content, 10);
+              const hashtags = nlpService.extractHashtags(post.content);
+              const mentions = nlpService.extractMentions(post.content);
+              const contentType = nlpService.analyzeContentType(post.content);
+              const language = nlpService.detectLanguage(post.content);
+
+              // Update post with NLP data
+              await pool.execute(
+                `UPDATE social_posts
+                 SET sentiment_score = ?,
+                     sentiment_comparative = ?,
+                     sentiment_classification = ?,
+                     extracted_keywords = ?,
+                     extracted_hashtags = ?,
+                     extracted_mentions = ?,
+                     content_type_detected = ?,
+                     language_detected = ?
+                 WHERE id = ?`,
+                [
+                  sentiment.score,
+                  sentiment.comparative,
+                  sentiment.classification,
+                  JSON.stringify(keywords.map(k => k.word)), // Store just the words
+                  JSON.stringify(hashtags),
+                  JSON.stringify(mentions),
+                  contentType.type,
+                  language,
+                  postId,
+                ]
+              );
+            } catch (nlpError) {
+              console.error(`Error analyzing NLP for post ${post.platform_post_id}:`, nlpError);
+              // Continue even if NLP analysis fails
+            }
+          }
 
           // Store engagement metrics if available (using index from original array)
           const metrics = data.engagementMetrics.get(i);

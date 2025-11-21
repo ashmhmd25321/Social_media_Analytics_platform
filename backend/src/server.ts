@@ -5,6 +5,12 @@ import authRoutes from './routes/authRoutes';
 import userRoutes from './routes/userRoutes';
 import socialRoutes from './routes/socialRoutes';
 import dataCollectionRoutes from './routes/dataCollectionRoutes';
+import analyticsRoutes from './routes/analyticsRoutes';
+import contentRoutes from './routes/contentRoutes';
+import reportRoutes from './routes/reportRoutes';
+import insightsRoutes from './routes/insightsRoutes';
+import alertRoutes from './routes/alertRoutes';
+import nlpRoutes from './routes/nlpRoutes';
 import { testConnection } from './config/database';
 import { connectRedis } from './config/redis';
 import { rateLimiter } from './middleware/rateLimiter';
@@ -46,6 +52,12 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/social', socialRoutes);
 app.use('/api/data', dataCollectionRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/content', contentRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/insights', insightsRoutes);
+app.use('/api/alerts', alertRoutes);
+app.use('/api/nlp', nlpRoutes);
 
 // Start server
 app.listen(PORT, async () => {

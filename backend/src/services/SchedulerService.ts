@@ -3,6 +3,8 @@ import { RowDataPacket } from 'mysql2/promise';
 import { UserSocialAccountModelInstance } from '../models/SocialPlatform';
 import { dataCollectionService } from './DataCollectionService';
 import { dataCollectionJobModel } from '../models/DataCollection';
+import { postPublishingService } from './PostPublishingService';
+import { alertService } from './AlertService';
 import { pool } from '../config/database';
 
 interface ScheduledJob {
@@ -32,6 +34,12 @@ class SchedulerService {
 
     // Schedule hourly incremental sync for active accounts
     this.scheduleHourlySync();
+
+    // Schedule post publishing (every minute)
+    this.schedulePostPublishing();
+
+    // Schedule alert checking (every 5 minutes)
+    this.scheduleAlertChecking();
   }
 
   /**
@@ -109,6 +117,43 @@ class SchedulerService {
       }
     });
     console.log('✅ Hourly incremental sync scheduled');
+  }
+
+  /**
+   * Schedule post publishing (runs every minute)
+   */
+  private schedulePostPublishing(): void {
+    cron.schedule('* * * * *', async () => {
+      try {
+        await postPublishingService.processPendingPosts();
+      } catch (error) {
+        console.error('Error in post publishing:', error);
+      }
+    });
+    console.log('✅ Post publishing scheduled (every minute)');
+  }
+
+  /**
+   * Schedule alert checking (runs every 5 minutes)
+   */
+  private scheduleAlertChecking(): void {
+    cron.schedule('*/5 * * * *', async () => {
+      try {
+        // Get all users with active alerts and check them
+        const [users] = await pool.execute<RowDataPacket[]>(
+          'SELECT DISTINCT user_id FROM alerts WHERE is_active = TRUE'
+        );
+        
+        for (const user of users) {
+          await alertService.checkAlerts(user.user_id).catch(err => {
+            console.error(`Error checking alerts for user ${user.user_id}:`, err);
+          });
+        }
+      } catch (error) {
+        console.error('Error in alert checking:', error);
+      }
+    });
+    console.log('✅ Alert checking scheduled (every 5 minutes)');
   }
 
   /**

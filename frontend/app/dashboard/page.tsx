@@ -16,37 +16,90 @@ import {
   Sparkles,
   ArrowRight,
   Activity,
+  Users,
+  Heart,
+  MessageCircle,
+  Share2,
+  Brain,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
+import { MetricCard, LineChart, BarChart } from '@/components/analytics';
+
+interface OverviewMetrics {
+  totalFollowers: number;
+  totalPosts: number;
+  totalEngagement: number;
+  averageEngagementRate: number;
+  connectedPlatforms: number;
+  growthRate: number;
+}
+
+interface FollowerTrend {
+  date: string;
+  followers: number;
+  platform: string;
+}
+
+interface EngagementTrend {
+  date: string;
+  likes: number;
+  comments: number;
+  shares: number;
+  engagementRate: number;
+}
+
+interface PlatformComparison {
+  platform: string;
+  followers: number;
+  posts: number;
+  engagement: number;
+  engagementRate: number;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
-  const [stats, setStats] = useState({
-    connectedPlatforms: 0,
-    totalFollowers: 0,
-    analyticsReports: 0,
-  });
+  const [overview, setOverview] = useState<OverviewMetrics | null>(null);
+  const [followerTrends, setFollowerTrends] = useState<FollowerTrend[]>([]);
+  const [engagementTrends, setEngagementTrends] = useState<EngagementTrend[]>([]);
+  const [platformComparison, setPlatformComparison] = useState<PlatformComparison[]>([]);
   const [loading, setLoading] = useState(true);
+  const [timeRange, setTimeRange] = useState<number>(30);
 
   useEffect(() => {
-    fetchStats();
-  }, []);
+    fetchAnalytics();
+  }, [timeRange]);
 
-  const fetchStats = async () => {
+  const fetchAnalytics = async () => {
     try {
-      // Fetch connected accounts
-      const accountsResponse = await api.get<{ data: any[] }>('/social/accounts');
-      const accounts = accountsResponse.data?.data || [];
+      setLoading(true);
       
-      setStats({
-        connectedPlatforms: accounts.length,
-        totalFollowers: 0, // Will be calculated from follower metrics
-        analyticsReports: 0,
-      });
+      // Fetch overview metrics
+      const overviewResponse = await api.get<{ data: OverviewMetrics }>('/analytics/overview');
+      if (overviewResponse.success && overviewResponse.data) {
+        setOverview(overviewResponse.data);
+      }
+
+      // Fetch follower trends
+      const followerResponse = await api.get<{ data: FollowerTrend[] }>(`/analytics/followers/trends?days=${timeRange}`);
+      if (followerResponse.success && followerResponse.data) {
+        setFollowerTrends(followerResponse.data);
+      }
+
+      // Fetch engagement trends
+      const engagementResponse = await api.get<{ data: EngagementTrend[] }>(`/analytics/engagement/trends?days=${timeRange}`);
+      if (engagementResponse.success && engagementResponse.data) {
+        setEngagementTrends(engagementResponse.data);
+      }
+
+      // Fetch platform comparison
+      const platformResponse = await api.get<{ data: PlatformComparison[] }>('/analytics/platforms/comparison');
+      if (platformResponse.success && platformResponse.data) {
+        setPlatformComparison(platformResponse.data);
+      }
     } catch (error) {
-      console.error('Error fetching stats:', error);
+      console.error('Error fetching analytics:', error);
     } finally {
       setLoading(false);
     }
@@ -69,6 +122,20 @@ export default function DashboardPage() {
     },
     {
       icon: FileText,
+      title: 'Content Library',
+      description: 'Create and schedule your social media posts',
+      gradient: 'from-green-500 to-emerald-500',
+      href: '/content/library',
+    },
+    {
+      icon: Brain,
+      title: 'NLP & AI Features',
+      description: 'Analyze sentiment, extract keywords, and get AI recommendations',
+      gradient: 'from-indigo-500 to-purple-500',
+      href: '/nlp',
+    },
+    {
+      icon: BarChart3,
       title: 'Reports',
       description: 'Generate and view analytics reports',
       gradient: 'from-orange-500 to-red-500',
@@ -185,12 +252,137 @@ export default function DashboardPage() {
                 </p>
               </motion.div>
 
-              {/* Dashboard Cards */}
+
+              {/* Time Range Filter */}
               <motion.div
-                className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12"
+                className="mb-6 flex items-center justify-between"
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.6 }}
+              >
+                <h2 className="text-2xl font-bold text-white">Analytics Overview</h2>
+                <div className="flex gap-2">
+                  {[7, 30, 90].map((days) => (
+                    <button
+                      key={days}
+                      onClick={() => setTimeRange(days)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        timeRange === days
+                          ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white shadow-lg'
+                          : 'bg-white/10 text-white/80 hover:bg-white/20'
+                      }`}
+                    >
+                      {days} days
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+
+              {/* Key Metrics Cards */}
+              {loading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 animate-pulse"
+                    >
+                      <div className="h-20 bg-white/10 rounded-lg"></div>
+                    </div>
+                  ))}
+                </div>
+              ) : overview ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  <MetricCard
+                    title="Total Followers"
+                    value={overview.totalFollowers}
+                    icon={Users}
+                    trend={{
+                      value: overview.growthRate,
+                      isPositive: overview.growthRate >= 0,
+                    }}
+                    gradient="from-blue-500 to-cyan-500"
+                    delay={0.1}
+                  />
+                  <MetricCard
+                    title="Total Posts"
+                    value={overview.totalPosts}
+                    icon={FileText}
+                    gradient="from-purple-500 to-pink-500"
+                    delay={0.2}
+                  />
+                  <MetricCard
+                    title="Total Engagement"
+                    value={overview.totalEngagement}
+                    icon={Heart}
+                    gradient="from-orange-500 to-red-500"
+                    delay={0.3}
+                  />
+                  <MetricCard
+                    title="Avg Engagement Rate"
+                    value={`${overview.averageEngagementRate.toFixed(2)}%`}
+                    icon={TrendingUp}
+                    gradient="from-green-500 to-emerald-500"
+                    delay={0.4}
+                  />
+                </div>
+              ) : null}
+
+              {/* Charts Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                {/* Follower Growth Chart */}
+                {followerTrends.length > 0 && (
+                  <LineChart
+                    data={followerTrends.map(t => ({
+                      date: t.date,
+                      followers: t.followers,
+                    }))}
+                    dataKey="followers"
+                    title="Follower Growth"
+                    color="#8b5cf6"
+                    delay={0.5}
+                  />
+                )}
+
+                {/* Engagement Trends Chart */}
+                {engagementTrends.length > 0 && (
+                  <LineChart
+                    data={engagementTrends.map(t => ({
+                      date: t.date,
+                      likes: t.likes,
+                      comments: t.comments,
+                      shares: t.shares,
+                    }))}
+                    dataKeys={[
+                      { key: 'likes', name: 'Likes', color: '#ec4899' },
+                      { key: 'comments', name: 'Comments', color: '#3b82f6' },
+                      { key: 'shares', name: 'Shares', color: '#10b981' },
+                    ]}
+                    title="Engagement Trends"
+                    delay={0.6}
+                  />
+                )}
+              </div>
+
+              {/* Platform Comparison */}
+              {platformComparison.length > 0 && (
+                <BarChart
+                  data={platformComparison}
+                  dataKeys={[
+                    { key: 'followers', name: 'Followers', color: '#8b5cf6' },
+                    { key: 'posts', name: 'Posts', color: '#ec4899' },
+                    { key: 'engagement', name: 'Engagement', color: '#f59e0b' },
+                  ]}
+                  title="Platform Comparison"
+                  delay={0.7}
+                />
+              )}
+
+              {/* Quick Actions */}
+              <motion.div
+                className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6"
                 initial={{ y: 50, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.8, delay: 0.4 }}
+                transition={{ duration: 0.8, delay: 0.8 }}
               >
                 {dashboardCards.map((card, index) => (
                   <Link key={index} href={card.href}>
@@ -198,7 +390,7 @@ export default function DashboardPage() {
                       className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 border border-white/20 shadow-2xl text-center hover:bg-white/15 transition-all cursor-pointer group"
                       initial={{ y: 30, opacity: 0 }}
                       animate={{ y: 0, opacity: 1 }}
-                      transition={{ duration: 0.6, delay: 0.6 + index * 0.1 }}
+                      transition={{ duration: 0.6, delay: 0.9 + index * 0.1 }}
                       whileHover={{ y: -5, scale: 1.02 }}
                     >
                       <div className={`w-14 h-14 bg-gradient-to-br ${card.gradient} rounded-xl flex items-center justify-center mx-auto mb-4 shadow-lg`}>
@@ -213,50 +405,6 @@ export default function DashboardPage() {
                       </div>
                     </motion.div>
                   </Link>
-                ))}
-              </motion.div>
-
-              {/* Quick Stats Section */}
-              <motion.div
-                className="grid grid-cols-1 md:grid-cols-3 gap-6"
-                initial={{ y: 50, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.8, delay: 0.8 }}
-              >
-                {[
-                  { 
-                    label: 'Connected Platforms', 
-                    value: loading ? '...' : stats.connectedPlatforms.toString(), 
-                    icon: Link2, 
-                    gradient: 'from-blue-500 to-cyan-500' 
-                  },
-                  { 
-                    label: 'Total Followers', 
-                    value: loading ? '...' : stats.totalFollowers.toString(), 
-                    icon: User, 
-                    gradient: 'from-purple-500 to-pink-500' 
-                  },
-                  { 
-                    label: 'Analytics Reports', 
-                    value: loading ? '...' : stats.analyticsReports.toString(), 
-                    icon: FileText, 
-                    gradient: 'from-orange-500 to-red-500' 
-                  },
-                ].map((stat, index) => (
-                  <motion.div
-                    key={index}
-                    className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/20 shadow-2xl"
-                    initial={{ y: 30, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ duration: 0.6, delay: 1 + index * 0.1 }}
-                    whileHover={{ y: -5, scale: 1.02 }}
-                  >
-                    <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${stat.gradient} flex items-center justify-center mb-3 shadow-lg`}>
-                      <stat.icon className="w-6 h-6 text-white" />
-                    </div>
-                    <div className="text-4xl font-bold text-white mb-1">{stat.value}</div>
-                    <div className="text-sm text-white/70">{stat.label}</div>
-                  </motion.div>
                 ))}
               </motion.div>
             </main>
