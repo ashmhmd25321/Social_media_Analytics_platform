@@ -1,13 +1,15 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Save, Calendar, Image, Video, FileText, X } from 'lucide-react';
+import { ArrowLeft, Save, Calendar, Image, Video, FileText, X, Hash, Sparkles, Clock } from 'lucide-react';
 import Link from 'next/link';
+import HashtagSuggestions from '@/components/content/HashtagSuggestions';
+import OptimalPostingTime from '@/components/content/OptimalPostingTime';
 
 interface ConnectedAccount {
   id: number;
@@ -18,6 +20,7 @@ interface ConnectedAccount {
 
 export default function CreateContentPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const [content, setContent] = useState('');
   const [title, setTitle] = useState('');
@@ -28,10 +31,44 @@ export default function CreateContentPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [hashtags, setHashtags] = useState<string[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<number | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   useEffect(() => {
     fetchAccounts();
+    fetchTemplates();
   }, []);
+
+  // Handle template selection from URL
+  useEffect(() => {
+    const templateId = searchParams.get('template');
+    if (templateId && templates.length > 0) {
+      const template = templates.find(t => t.id === parseInt(templateId));
+      if (template) {
+        setSelectedTemplate(template.id);
+        setContent(template.content);
+        setTitle(template.name);
+        if (template.hashtags) {
+          setHashtags(Array.isArray(template.hashtags) ? template.hashtags : []);
+        }
+      }
+    }
+  }, [searchParams, templates]);
+
+  useEffect(() => {
+    if (selectedTemplate) {
+      const template = templates.find(t => t.id === selectedTemplate);
+      if (template) {
+        setContent(template.content);
+        setTitle(template.name);
+        if (template.hashtags) {
+          setHashtags(Array.isArray(template.hashtags) ? template.hashtags : []);
+        }
+      }
+    }
+  }, [selectedTemplate, templates]);
 
   const fetchAccounts = async () => {
     try {
@@ -44,6 +81,46 @@ export default function CreateContentPage() {
     }
   };
 
+  const fetchTemplates = async () => {
+    try {
+      const response = await api.get<{ data: any[] }>('/content/templates');
+      if (response.success && response.data) {
+        setTemplates(Array.isArray(response.data) ? response.data : []);
+      }
+    } catch (error) {
+      console.error('Error fetching templates:', error);
+    }
+  };
+
+  const handleHashtagAdd = (hashtag: string) => {
+    if (!hashtags.includes(hashtag)) {
+      setHashtags([...hashtags, hashtag]);
+      // Add hashtag to content if not already there
+      if (!content.includes(hashtag)) {
+        setContent(content + (content.trim() ? ' ' : '') + hashtag);
+      }
+    }
+  };
+
+  const handleHashtagRemove = (hashtag: string) => {
+    setHashtags(hashtags.filter(h => h !== hashtag));
+    // Remove from content
+    setContent(content.replace(new RegExp(`\\s*${hashtag}\\s*`, 'g'), ' ').trim());
+  };
+
+  const handleTimeSelect = (hour: number) => {
+    if (scheduledAt) {
+      const date = new Date(scheduledAt);
+      date.setHours(hour, 0, 0, 0);
+      setScheduledAt(date.toISOString().slice(0, 16));
+    } else {
+      const date = new Date();
+      date.setHours(hour, 0, 0, 0);
+      date.setDate(date.getDate() + 1); // Tomorrow
+      setScheduledAt(date.toISOString().slice(0, 16));
+    }
+  };
+
   const handleSaveDraft = async () => {
     setIsSaving(true);
     setMessage(null);
@@ -51,7 +128,8 @@ export default function CreateContentPage() {
     try {
       const response = await api.post('/content/drafts', {
         title,
-        content,
+        content: content + (hashtags.length > 0 ? ' ' + hashtags.join(' ') : ''),
+        hashtags: hashtags,
         target_platforms: selectedPlatforms,
         status: 'draft',
       });
@@ -221,6 +299,36 @@ export default function CreateContentPage() {
                 <div className="mt-2 text-sm text-white/60">
                   {content.length} characters
                 </div>
+                
+                {/* Hashtag Suggestions */}
+                {content.length >= 10 && (
+                  <HashtagSuggestions
+                    content={content}
+                    accountId={selectedPlatforms[0]}
+                    onHashtagAdd={handleHashtagAdd}
+                    selectedHashtags={hashtags}
+                  />
+                )}
+
+                {/* Selected Hashtags */}
+                {hashtags.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {hashtags.map((hashtag, index) => (
+                      <span
+                        key={index}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-primary-500/20 text-primary-300 rounded-full text-sm"
+                      >
+                        {hashtag}
+                        <button
+                          onClick={() => handleHashtagRemove(hashtag)}
+                          className="hover:text-primary-200 transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </motion.div>
 
               {/* Media Placeholder */}
@@ -272,6 +380,49 @@ export default function CreateContentPage() {
                 )}
               </motion.div>
 
+              {/* Templates */}
+              <motion.div
+                className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.4 }}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Sparkles className="w-5 h-5" />
+                    Templates
+                  </h3>
+                  <Link
+                    href="/content/templates"
+                    className="text-sm text-primary-300 hover:text-primary-200 transition-colors"
+                  >
+                    Manage
+                  </Link>
+                </div>
+                {templates.length === 0 ? (
+                  <p className="text-white/60 text-sm mb-3">No templates yet.</p>
+                ) : (
+                  <select
+                    value={selectedTemplate || ''}
+                    onChange={(e) => setSelectedTemplate(e.target.value ? parseInt(e.target.value) : null)}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
+                  >
+                    <option value="" className="bg-secondary-900">Select a template...</option>
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.id} className="bg-secondary-900">
+                        {template.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <Link
+                  href="/content/templates?create=true"
+                  className="mt-3 block text-center text-sm text-primary-300 hover:text-primary-200 transition-colors"
+                >
+                  + Create New Template
+                </Link>
+              </motion.div>
+
               {/* Scheduling */}
               <motion.div
                 className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
@@ -307,6 +458,15 @@ export default function CreateContentPage() {
                       <option value="America/Los_Angeles" className="bg-secondary-900">Pacific Time (PT)</option>
                     </select>
                   </div>
+                  
+                  {/* Optimal Posting Time Suggestions */}
+                  {selectedPlatforms.length > 0 && (
+                    <OptimalPostingTime
+                      accountId={selectedPlatforms[0]}
+                      onTimeSelect={handleTimeSelect}
+                      selectedDateTime={scheduledAt}
+                    />
+                  )}
                 </div>
               </motion.div>
 

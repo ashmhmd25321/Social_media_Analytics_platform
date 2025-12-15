@@ -1,6 +1,7 @@
 import { alertModel, Alert, notificationModel, Notification } from '../models/Report';
 import { analyticsService } from './AnalyticsService';
 import { UserSocialAccountModelInstance } from '../models/SocialPlatform';
+import { emailService } from './EmailService';
 import { pool } from '../config/database';
 import { RowDataPacket } from 'mysql2/promise';
 
@@ -121,12 +122,13 @@ class AlertService {
     );
 
     // Send notifications
+    const message = this.getAlertMessage(alert, currentValue);
+    
     for (const channel of alert.notification_channels) {
       if (channel === 'in_app') {
         await this.createInAppNotification(alert, currentValue);
       } else if (channel === 'email') {
-        // TODO: Implement email notification
-        console.log(`Email notification for alert ${alert.id} (not implemented yet)`);
+        await this.sendEmailNotification(alert, currentValue, message);
       }
     }
   }
@@ -169,6 +171,38 @@ class AlertService {
         return `${metricName} has reached ${currentValue.toLocaleString()}, matching your threshold.`;
       default:
         return `${metricName} is currently ${currentValue.toLocaleString()}.`;
+    }
+  }
+
+  /**
+   * Send email notification for alert
+   */
+  private async sendEmailNotification(
+    alert: Alert,
+    currentValue: number,
+    message: string
+  ): Promise<void> {
+    try {
+      // Get user email
+      const [userRows] = await pool.execute<RowDataPacket[]>(
+        'SELECT email, first_name FROM users WHERE id = ?',
+        [alert.user_id]
+      );
+
+      if (userRows.length === 0) {
+        console.error(`User ${alert.user_id} not found for email notification`);
+        return;
+      }
+
+      const user = userRows[0];
+      await emailService.sendAlertNotification(
+        user.email,
+        alert.name,
+        message,
+        currentValue
+      );
+    } catch (error) {
+      console.error(`Error sending email notification for alert ${alert.id}:`, error);
     }
   }
 

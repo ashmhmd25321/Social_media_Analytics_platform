@@ -22,6 +22,11 @@ router.delete('/scheduled/:id', (req, res) => contentController.cancelScheduledP
 // Template routes
 router.get('/templates', (req, res) => contentController.getTemplates(req, res));
 router.post('/templates', (req, res) => contentController.createTemplate(req, res));
+router.delete('/templates/:id', (req, res) => contentController.deleteTemplate(req, res));
+
+// Content suggestions routes
+router.get('/hashtags/suggest', (req, res) => contentController.getHashtagSuggestions(req, res));
+router.get('/posting-time/suggest', (req, res) => contentController.getOptimalPostingTime(req, res));
 
 export default router;
 

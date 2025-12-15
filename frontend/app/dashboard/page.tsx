@@ -21,6 +21,7 @@ import {
   MessageCircle,
   Share2,
   Brain,
+  Target,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
@@ -126,6 +127,13 @@ export default function DashboardPage() {
       description: 'Create and schedule your social media posts',
       gradient: 'from-green-500 to-emerald-500',
       href: '/content/library',
+    },
+    {
+      icon: Target,
+      title: 'Campaigns',
+      description: 'Create and track marketing campaigns',
+      gradient: 'from-indigo-500 to-purple-500',
+      href: '/campaigns',
     },
     {
       icon: Brain,
@@ -280,7 +288,7 @@ export default function DashboardPage() {
 
               {/* Key Metrics Cards */}
               {loading ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8" role="region" aria-label="Loading metrics">
                   {[1, 2, 3, 4].map((i) => (
                     <div
                       key={i}
@@ -291,7 +299,7 @@ export default function DashboardPage() {
                   ))}
                 </div>
               ) : overview ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8" role="region" aria-label="Overview metrics">
                   <MetricCard
                     title="Total Followers"
                     value={overview.totalFollowers}
@@ -328,7 +336,7 @@ export default function DashboardPage() {
               ) : null}
 
               {/* Charts Section */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-8" role="region" aria-label="Analytics charts">
                 {/* Follower Growth Chart */}
                 {followerTrends.length > 0 && (
                   <LineChart
@@ -363,6 +371,99 @@ export default function DashboardPage() {
                 )}
               </div>
 
+              {/* Platform-specific overviews */}
+              {platformComparison.length > 0 && (
+                <section className="mb-8 space-y-6" aria-label="Platform specific overviews">
+                  {(() => {
+                    const byPlatform = (name: string) =>
+                      platformComparison.find((p) => p.platform.toLowerCase().includes(name));
+
+                    const facebook = byPlatform('facebook');
+                    const youtube = byPlatform('youtube');
+
+                    return (
+                      <>
+                        {facebook && (
+                          <div>
+                            <h3 className="mb-3 text-lg font-semibold text-white">
+                              Facebook Overview
+                            </h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                              <MetricCard
+                                title="Facebook Followers"
+                                value={facebook.followers}
+                                icon={Users}
+                                gradient="from-blue-500 to-indigo-500"
+                                delay={0.05}
+                              />
+                              <MetricCard
+                                title="Facebook Posts"
+                                value={facebook.posts}
+                                icon={FileText}
+                                gradient="from-sky-500 to-cyan-500"
+                                delay={0.1}
+                              />
+                              <MetricCard
+                                title="Facebook Engagement"
+                                value={facebook.engagement}
+                                icon={Heart}
+                                gradient="from-emerald-500 to-green-500"
+                                delay={0.15}
+                              />
+                              <MetricCard
+                                title="FB Avg Engagement Rate"
+                                value={`${facebook.engagementRate.toFixed(2)}%`}
+                                icon={TrendingUp}
+                                gradient="from-violet-500 to-fuchsia-500"
+                                delay={0.2}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {youtube && (
+                          <div>
+                            <h3 className="mb-3 text-lg font-semibold text-white">
+                              YouTube Overview
+                            </h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                              <MetricCard
+                                title="YouTube Subscribers"
+                                value={youtube.followers}
+                                icon={Users}
+                                gradient="from-red-500 to-rose-500"
+                                delay={0.25}
+                              />
+                              <MetricCard
+                                title="Videos Uploaded"
+                                value={youtube.posts}
+                                icon={FileText}
+                                gradient="from-orange-500 to-amber-500"
+                                delay={0.3}
+                              />
+                              <MetricCard
+                                title="YouTube Engagement"
+                                value={youtube.engagement}
+                                icon={Heart}
+                                gradient="from-lime-500 to-emerald-500"
+                                delay={0.35}
+                              />
+                              <MetricCard
+                                title="YT Avg Engagement Rate"
+                                value={`${youtube.engagementRate.toFixed(2)}%`}
+                                icon={TrendingUp}
+                                gradient="from-sky-500 to-cyan-500"
+                                delay={0.4}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </section>
+              )}
+
               {/* Platform Comparison */}
               {platformComparison.length > 0 && (
                 <BarChart
@@ -385,9 +486,9 @@ export default function DashboardPage() {
                 transition={{ duration: 0.8, delay: 0.8 }}
               >
                 {dashboardCards.map((card, index) => (
-                  <Link key={index} href={card.href}>
+                  <Link key={index} href={card.href} className="h-full">
                     <motion.div
-                      className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 border border-white/20 shadow-2xl text-center hover:bg-white/15 transition-all cursor-pointer group"
+                      className="flex h-full flex-col bg-white/10 backdrop-blur-xl rounded-2xl p-8 border border-white/20 shadow-2xl text-center hover:bg-white/15 transition-all cursor-pointer group"
                       initial={{ y: 30, opacity: 0 }}
                       animate={{ y: 0, opacity: 1 }}
                       transition={{ duration: 0.6, delay: 0.9 + index * 0.1 }}
@@ -397,10 +498,10 @@ export default function DashboardPage() {
                         <card.icon className="w-7 h-7 text-white" />
                       </div>
                       <h3 className="text-lg font-semibold text-white mb-2">{card.title}</h3>
-                      <p className="text-white/70 text-sm mb-4">
+                      <p className="text-white/70 text-sm mb-4 flex-1">
                         {card.description}
                       </p>
-                      <div className="flex items-center justify-center text-secondary-300 font-medium text-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="mt-auto flex items-center justify-center text-secondary-300 font-medium text-sm opacity-0 group-hover:opacity-100 transition-opacity">
                         Explore <ArrowRight className="w-4 h-4 ml-1" />
                       </div>
                     </motion.div>

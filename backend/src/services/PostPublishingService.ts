@@ -134,7 +134,7 @@ class PostPublishingService {
       // Example:
       // - Facebook: POST to /{page-id}/feed
       // - Instagram: POST to /{ig-user-id}/media
-      // - Twitter: POST to /2/tweets
+      // - YouTube: POST to /youtube/v3/videos
       // etc.
 
       console.log(`📤 Publishing to ${platformType}...`);

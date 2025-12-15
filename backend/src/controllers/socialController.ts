@@ -29,8 +29,13 @@ export const getPlatforms = async (req: Request, res: Response) => {
  */
 export const initiateOAuth = async (req: AuthenticatedRequest, res: Response) => {
   try {
+    console.log('[DEBUG] initiateOAuth called');
+    console.log('[DEBUG] Request params:', req.params);
+    console.log('[DEBUG] User:', req.user);
+    
     const userId = req.user?.userId;
     if (!userId) {
+      console.error('[DEBUG] User not authenticated - no userId in request');
       return res.status(401).json({
         success: false,
         message: 'User not authenticated',
@@ -38,55 +43,88 @@ export const initiateOAuth = async (req: AuthenticatedRequest, res: Response) =>
     }
 
     const { platformName } = req.params;
+    console.log(`[DEBUG] Platform name: ${platformName}`);
+    
     const platform = await SocialAccountModel.platform.findByName(platformName);
+    console.log(`[DEBUG] Platform found:`, platform ? { id: platform.id, name: platform.name } : 'NOT FOUND');
 
     if (!platform) {
+      console.error(`[DEBUG] Platform not found: ${platformName}`);
       return res.status(404).json({
         success: false,
         message: 'Platform not found',
       });
     }
 
+    console.log(`[DEBUG] Platform OAuth auth URL: ${platform.oauth_auth_url}`);
+    
     const oauthConfig = getOAuthConfig(platformName);
-    if (!oauthConfig.clientId) {
+    console.log(`[DEBUG] OAuth config:`, {
+      hasClientId: !!oauthConfig.clientId,
+      hasClientSecret: !!oauthConfig.clientSecret,
+      redirectUri: oauthConfig.redirectUri,
+      scopes: oauthConfig.scopes,
+    });
+
+    if (!oauthConfig.clientId || !oauthConfig.clientSecret) {
+      console.error(`[DEBUG] OAuth not configured for platform: ${platformName}`);
       return res.status(400).json({
         success: false,
-        message: 'Platform OAuth not configured',
+        message: 'Platform OAuth not configured. Please configure OAuth credentials in the backend.',
       });
     }
 
     // Generate state token for CSRF protection
     const stateToken = generateStateToken();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    console.log(`[DEBUG] Generated state token: ${stateToken.substring(0, 10)}...`);
 
-    await OAuthStateModelInstance.create({
-      user_id: userId,
-      platform_id: platform.id!,
-      state_token: stateToken,
-      redirect_uri: oauthConfig.redirectUri,
-      expires_at: expiresAt,
-    });
+    try {
+      await OAuthStateModelInstance.create({
+        user_id: userId,
+        platform_id: platform.id!,
+        state_token: stateToken,
+        redirect_uri: oauthConfig.redirectUri,
+        expires_at: expiresAt,
+      });
+      console.log('[DEBUG] OAuth state record created successfully');
+    } catch (dbError) {
+      console.error('[DEBUG] Error creating OAuth state record:', dbError);
+      throw dbError;
+    }
 
     // Build OAuth authorization URL
-    const authUrl = new URL(platform.oauth_auth_url || '');
+    if (!platform.oauth_auth_url) {
+      console.error(`[DEBUG] Platform ${platformName} has no oauth_auth_url`);
+      return res.status(500).json({
+        success: false,
+        message: `Platform ${platformName} OAuth URL not configured`,
+      });
+    }
+
+    const authUrl = new URL(platform.oauth_auth_url);
     authUrl.searchParams.set('client_id', oauthConfig.clientId);
     authUrl.searchParams.set('redirect_uri', oauthConfig.redirectUri);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('scope', oauthConfig.scopes.join(' '));
     authUrl.searchParams.set('state', stateToken);
 
+    const finalAuthUrl = authUrl.toString();
+    console.log(`[DEBUG] Generated OAuth URL: ${finalAuthUrl.substring(0, 100)}...`);
+
     res.status(200).json({
       success: true,
       data: {
-        authUrl: authUrl.toString(),
+        authUrl: finalAuthUrl,
         stateToken,
       },
     });
   } catch (error) {
-    console.error('Error initiating OAuth:', error);
+    console.error('[DEBUG] Error initiating OAuth:', error);
+    console.error('[DEBUG] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     res.status(500).json({
       success: false,
-      message: 'Failed to initiate OAuth flow',
+      message: error instanceof Error ? error.message : 'Failed to initiate OAuth flow',
     });
   }
 };
@@ -288,6 +326,68 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
         console.error('Error fetching Facebook page info:', err);
         // Continue with temp_id if page fetch fails
       }
+    } else if (platformName.toLowerCase() === 'youtube') {
+      // Fetch YouTube channel info
+      try {
+        const channelResponse = await fetch(
+          `https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true&access_token=${tokenData.access_token}`
+        );
+        
+        if (channelResponse.ok) {
+          const channelData = await channelResponse.json() as {
+            items?: Array<{
+              id?: string;
+              snippet?: {
+                title?: string;
+                customUrl?: string;
+                thumbnails?: {
+                  default?: {
+                    url?: string;
+                  };
+                };
+              };
+            }>;
+            error?: { message: string };
+          };
+          
+          if (channelData.error) {
+            console.error('YouTube API error:', channelData.error.message);
+          } else if (channelData.items && channelData.items.length > 0) {
+            const channel = channelData.items[0];
+            platformAccountId = channel.id || 'temp_id';
+            platformDisplayName = channel.snippet?.title || '';
+            platformUsername = channel.snippet?.customUrl || channel.snippet?.title || '';
+            profilePictureUrl = channel.snippet?.thumbnails?.default?.url || '';
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching YouTube channel info:', err);
+        // Continue with temp_id if channel fetch fails
+      }
+    } else if (platformName.toLowerCase() === 'instagram') {
+      // Instagram uses Facebook Graph API
+      try {
+        const userResponse = await fetch(
+          `https://graph.instagram.com/me?fields=id,username&access_token=${tokenData.access_token}`
+        );
+        if (userResponse.ok) {
+          const userData = await userResponse.json() as {
+            id?: string;
+            username?: string;
+            error?: { message: string };
+          };
+          
+          if (userData.error) {
+            console.error('Instagram API error:', userData.error.message);
+          } else {
+            platformAccountId = userData.id || 'temp_id';
+            platformUsername = userData.username || '';
+            platformDisplayName = userData.username || '';
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching Instagram user info:', err);
+      }
     }
 
     // Save or update account connection
@@ -366,6 +466,7 @@ export const getConnectedAccounts = async (req: AuthenticatedRequest, res: Respo
     });
   }
 };
+
 
 /**
  * Disconnect a social media account

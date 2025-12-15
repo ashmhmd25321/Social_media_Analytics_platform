@@ -161,22 +161,40 @@ class DataCollectionService {
     const accountWithPlatform = account as UserSocialAccount & { platform_name?: string; platform_type?: string };
     const platformType = accountWithPlatform.platform_type || accountWithPlatform.platform_name || 'unknown';
 
+    // If no access token, try to use default credentials (YouTube only)
+    // Facebook/Instagram require user-specific tokens via OAuth
+    if (!account.access_token || account.access_token === 'mock_token') {
+      // Try to get default credentials
+      const { getDefaultPlatformCredentials } = await import('../config/oauth-config');
+      const defaultCreds = getDefaultPlatformCredentials();
+      
+      // Only use default credentials for YouTube (API key is general)
+      // Facebook/Instagram must have user-specific tokens
+      if (platformType.toLowerCase() === 'youtube' && defaultCreds.youtube.apiKey && defaultCreds.youtube.channelId) {
+        account.access_token = defaultCreds.youtube.apiKey;
+        if (defaultCreds.youtube.channelId && !account.platform_account_id) {
+          account.platform_account_id = defaultCreds.youtube.channelId;
+        }
+      } else if (platformType.toLowerCase() === 'facebook' || platformType.toLowerCase() === 'instagram') {
+        // Facebook/Instagram require user to connect their own account
+        throw new Error(`Please connect your ${platformType} account in Settings to view your data.`);
+      } else if (process.env.USE_MOCK_DATA === 'true') {
+        return await this.collectMockData(account, options);
+      } else {
+        throw new Error(`No account connected for platform: ${platformType}. Please connect your account in Settings.`);
+      }
+    }
+
     switch (platformType.toLowerCase()) {
       case 'facebook':
       case 'instagram':
         // Check if we should use mock data (for testing without API)
-        if (process.env.USE_MOCK_DATA === 'true' || account.access_token === 'mock_token') {
+        if (process.env.USE_MOCK_DATA === 'true') {
           return await this.collectMockData(account, options);
         }
         return await this.collectFacebookData(account, options);
-      case 'twitter':
-        return await this.collectTwitterData(account, options);
-      case 'linkedin':
-        return await this.collectLinkedInData(account, options);
       case 'youtube':
         return await this.collectYouTubeData(account, options);
-      case 'tiktok':
-        return await this.collectTikTokData(account, options);
       case 'mock':
         return await this.collectMockData(account, options);
       default:
@@ -197,59 +215,20 @@ class DataCollectionService {
   }
 
   /**
-   * Twitter/X data collection
-   */
-  private async collectTwitterData(
-    account: UserSocialAccount,
-    options: CollectionOptions
-  ): Promise<PlatformData> {
-    // TODO: Implement Twitter API v2 integration
-    return {
-      posts: [],
-      engagementMetrics: new Map(),
-    };
-  }
-
-  /**
-   * LinkedIn data collection
-   */
-  private async collectLinkedInData(
-    account: UserSocialAccount,
-    options: CollectionOptions
-  ): Promise<PlatformData> {
-    // TODO: Implement LinkedIn API integration
-    return {
-      posts: [],
-      engagementMetrics: new Map(),
-    };
-  }
-
-  /**
    * YouTube data collection
    */
   private async collectYouTubeData(
     account: UserSocialAccount,
     options: CollectionOptions
   ): Promise<PlatformData> {
-    // TODO: Implement YouTube Data API v3 integration
-    return {
-      posts: [],
-      engagementMetrics: new Map(),
-    };
-  }
-
-  /**
-   * TikTok data collection
-   */
-  private async collectTikTokData(
-    account: UserSocialAccount,
-    options: CollectionOptions
-  ): Promise<PlatformData> {
-    // TODO: Implement TikTok API integration
-    return {
-      posts: [],
-      engagementMetrics: new Map(),
-    };
+    // Check if we should use mock data (for testing without API)
+    if (process.env.USE_MOCK_DATA === 'true' || account.access_token === 'mock_token') {
+      return await this.collectMockData(account, options);
+    }
+    
+    const YouTubeService = (await import('./platforms/YouTubeService')).default;
+    const youtubeService = new YouTubeService(account.access_token);
+    return await youtubeService.collectData(account, options);
   }
 
   /**

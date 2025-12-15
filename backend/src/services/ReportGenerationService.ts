@@ -70,6 +70,13 @@ class ReportGenerationService {
   }
 
   /**
+   * Get preview data for a report (without generating file)
+   */
+  async getPreviewData(userId: number, report: Report): Promise<ReportData> {
+    return await this.fetchReportData(userId, report);
+  }
+
+  /**
    * Fetch data for the report
    */
   private async fetchReportData(userId: number, report: Report): Promise<ReportData> {

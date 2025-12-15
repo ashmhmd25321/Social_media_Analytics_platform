@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { RowDataPacket } from 'mysql2/promise';
 import { contentDraftModel, scheduledPostModel, contentTemplateModel } from '../models/Content';
 import { UserSocialAccountModelInstance, UserSocialAccount } from '../models/SocialPlatform';
 
@@ -307,6 +308,135 @@ export class ContentController {
   }
 
   /**
+   * Get hashtag suggestions based on content
+   * GET /api/content/hashtags/suggest?text=...
+   */
+  async getHashtagSuggestions(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const { text, accountId } = req.query;
+      if (!text || typeof text !== 'string') {
+        res.status(400).json({ success: false, message: 'Text parameter is required' });
+        return;
+      }
+
+      // Import services
+      const { nlpService } = await import('../services/NLPService');
+      const { contentRecommendationService } = await import('../services/ContentRecommendationService');
+
+      // Get hashtags from content
+      const extractedHashtags = nlpService.extractHashtags(text);
+      
+      // Get recommended hashtags from successful posts
+      const recommendations = accountId 
+        ? await contentRecommendationService.generateRecommendations(userId, parseInt(accountId as string))
+        : await contentRecommendationService.generateRecommendations(userId);
+      
+      const recommendedHashtags = recommendations
+        .filter(r => r.type === 'hashtag')
+        .map(r => r.value.split(',').map(v => v.trim()))
+        .flat();
+
+      // Combine and deduplicate
+      const allHashtags = [...new Set([...extractedHashtags, ...recommendedHashtags])];
+
+      res.json({ 
+        success: true, 
+        data: {
+          hashtags: allHashtags.slice(0, 20), // Limit to 20 suggestions
+          extracted: extractedHashtags,
+          recommended: recommendedHashtags,
+        }
+      });
+    } catch (error) {
+      console.error('Error getting hashtag suggestions:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get hashtag suggestions',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * Get optimal posting time suggestions
+   * GET /api/content/posting-time/suggest?accountId=...
+   */
+  async getOptimalPostingTime(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const { accountId } = req.query;
+      const { analyticsService } = await import('../services/AnalyticsService');
+      const { pool } = await import('../config/database');
+
+      // Get engagement data by hour from engagement snapshots
+      const [rows] = await pool.execute<RowDataPacket[]>(
+        `SELECT 
+           HOUR(es.snapshot_time) as hour,
+           AVG(es.engagement_rate) as avg_engagement,
+           COUNT(*) as post_count
+         FROM engagement_snapshots es
+         INNER JOIN social_posts sp ON es.post_id = sp.id
+         WHERE sp.user_id = ?
+         ${accountId ? 'AND sp.account_id = ?' : ''}
+         GROUP BY HOUR(es.snapshot_time)
+         ORDER BY avg_engagement DESC
+         LIMIT 5`,
+        accountId ? [userId, accountId] : [userId]
+      );
+
+      const bestHours = rows.map(row => ({
+        hour: row.hour,
+        avgEngagement: parseFloat(row.avg_engagement || '0'),
+        postCount: row.post_count || 0,
+      }));
+
+      // If no data, return default suggestions
+      if (bestHours.length === 0) {
+        res.json({
+          success: true,
+          data: {
+            bestHours: [
+              { hour: 9, avgEngagement: 0, postCount: 0, label: '9:00 AM' },
+              { hour: 12, avgEngagement: 0, postCount: 0, label: '12:00 PM' },
+              { hour: 18, avgEngagement: 0, postCount: 0, label: '6:00 PM' },
+            ],
+            message: 'No historical data available. Using default suggestions.',
+          }
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          bestHours: bestHours.map(h => ({
+            ...h,
+            label: `${h.hour % 12 || 12}:00 ${h.hour >= 12 ? 'PM' : 'AM'}`,
+          })),
+        }
+      });
+    } catch (error) {
+      console.error('Error getting optimal posting time:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get optimal posting time',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
    * Create a content template
    * POST /api/content/templates
    */
@@ -333,6 +463,53 @@ export class ContentController {
       res.status(500).json({
         success: false,
         message: 'Failed to create template',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * Delete a content template
+   * DELETE /api/content/templates/:id
+   */
+  async deleteTemplate(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const id = parseInt(req.params.id);
+      const { pool } = await import('../config/database');
+      
+      // Verify template belongs to user
+      const [rows] = await pool.execute<any[]>(
+        'SELECT user_id FROM content_templates WHERE id = ?',
+        [id]
+      );
+
+      if (rows.length === 0) {
+        res.status(404).json({ success: false, message: 'Template not found' });
+        return;
+      }
+
+      if (rows[0].user_id !== userId) {
+        res.status(403).json({ success: false, message: 'Forbidden' });
+        return;
+      }
+
+      await pool.execute('DELETE FROM content_templates WHERE id = ?', [id]);
+
+      res.json({
+        success: true,
+        message: 'Template deleted successfully',
+      });
+    } catch (error) {
+      console.error('Error deleting template:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete template',
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }

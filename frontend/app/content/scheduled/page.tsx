@@ -6,7 +6,7 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Calendar, X, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Calendar, X, CheckCircle, Clock, AlertCircle, CalendarDays } from 'lucide-react';
 import Link from 'next/link';
 
 interface ScheduledPost {
@@ -124,8 +124,19 @@ export default function ScheduledPostsPage() {
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Content Library
             </Link>
-            <h1 className="text-4xl font-heading font-bold mb-2">Scheduled Posts</h1>
-            <p className="text-white/80">View and manage your scheduled social media posts</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-4xl font-heading font-bold mb-2">Scheduled Posts</h1>
+                <p className="text-white/80">View and manage your scheduled social media posts</p>
+              </div>
+              <Link
+                href="/content/calendar"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+              >
+                <CalendarDays className="w-5 h-5" />
+                Calendar View
+              </Link>
+            </div>
           </motion.div>
 
           {/* Filters */}

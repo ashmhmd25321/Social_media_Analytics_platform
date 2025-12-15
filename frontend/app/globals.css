@@ -49,6 +49,30 @@
     font-size: 1rem;
     line-height: 1.5rem;
   }
+
+  /* Mobile-first responsive typography */
+  @media (max-width: 640px) {
+    h1 {
+      font-size: 1.875rem;
+      line-height: 2.25rem;
+    }
+    h2 {
+      font-size: 1.5rem;
+      line-height: 2rem;
+    }
+    h3 {
+      font-size: 1.25rem;
+      line-height: 1.75rem;
+    }
+  }
+
+  /* Touch-friendly tap targets */
+  @media (hover: none) and (pointer: coarse) {
+    button, a, input, select {
+      min-height: 44px;
+      min-width: 44px;
+    }
+  }
 }
 
 @layer components {
@@ -76,10 +100,31 @@
     white-space: normal;
   }
 
-  /* Focus styles for accessibility */
+  /* Enhanced focus styles for accessibility */
   *:focus-visible {
     outline: 2px solid #6366f1;
     outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* High contrast mode support */
+  @media (prefers-contrast: high) {
+    *:focus-visible {
+      outline: 3px solid #000;
+      outline-offset: 3px;
+    }
+  }
+
+  /* Reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 
   /* Button Styles */
@@ -95,6 +140,8 @@
     outline: none;
     border: none;
     cursor: pointer;
+    min-height: 44px;
+    min-width: 44px;
   }
 
   .btn:focus {
@@ -193,6 +240,7 @@
     padding: 0.5rem 1rem;
     font-size: 0.875rem;
     color: rgb(17 24 39);
+    min-height: 44px;
   }
 
   .input::placeholder {
@@ -214,12 +262,41 @@
     border-color: #ef4444;
     ring-color: rgba(239, 68, 68, 0.2);
   }
+
+  /* Responsive container */
+  .container-responsive {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .container-responsive {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container-responsive {
+      padding-left: 2rem;
+      padding-right: 2rem;
+    }
+  }
 }
 
 @layer utilities {
   /* Smooth scrolling */
   html {
     scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
   }
 
   /* Custom animations */
@@ -300,5 +377,26 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     animation: shimmer 3s linear infinite;
+  }
+
+  /* Mobile-specific utilities */
+  @media (max-width: 640px) {
+    .mobile-hidden {
+      display: none;
+    }
+  }
+
+  @media (min-width: 641px) {
+    .mobile-only {
+      display: none;
+    }
+  }
+
+  /* Touch-friendly spacing */
+  @media (hover: none) and (pointer: coarse) {
+    .touch-target {
+      padding: 0.75rem;
+      margin: 0.5rem;
+    }
   }
 }

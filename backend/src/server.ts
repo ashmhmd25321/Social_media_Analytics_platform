@@ -11,6 +11,8 @@ import reportRoutes from './routes/reportRoutes';
 import insightsRoutes from './routes/insightsRoutes';
 import alertRoutes from './routes/alertRoutes';
 import nlpRoutes from './routes/nlpRoutes';
+import teamRoutes from './routes/teamRoutes';
+import campaignRoutes from './routes/campaignRoutes';
 import { testConnection } from './config/database';
 import { connectRedis } from './config/redis';
 import { rateLimiter } from './middleware/rateLimiter';
@@ -58,6 +60,8 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/insights', insightsRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/nlp', nlpRoutes);
+app.use('/api/teams', teamRoutes);
+app.use('/api/campaigns', campaignRoutes);
 
 // Start server
 app.listen(PORT, async () => {

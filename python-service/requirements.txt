@@ -1,0 +1,28 @@
+# Python Service Dependencies for Social Media Analytics Platform
+# ML and Data Science Libraries
+pandas==2.2.0
+numpy==1.26.3
+scikit-learn==1.4.0
+
+# NLP Libraries
+nltk==3.8.1
+spacy==3.7.2
+
+# Machine Learning
+scipy==1.12.0
+joblib==1.3.2
+
+# API Framework
+flask==3.0.0
+flask-cors==4.0.0
+
+# Network Analysis
+networkx==3.2.1
+
+# Topic Modeling
+gensim==4.3.2
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+

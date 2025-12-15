@@ -124,6 +124,54 @@ export class AnalyticsController {
       });
     }
   }
+
+  /**
+   * Get audience analytics
+   * GET /api/analytics/audience
+   */
+  async getAudienceMetrics(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const metrics = await analyticsService.getAudienceMetrics(userId);
+      res.json({ success: true, data: metrics });
+    } catch (error) {
+      console.error('Error fetching audience metrics:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch audience metrics',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * Get content type breakdown
+   * GET /api/analytics/content/types
+   */
+  async getContentTypeBreakdown(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const breakdown = await analyticsService.getContentTypeBreakdown(userId);
+      res.json({ success: true, data: breakdown });
+    } catch (error) {
+      console.error('Error fetching content type breakdown:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch content type breakdown',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
 }
 
 export const analyticsController = new AnalyticsController();

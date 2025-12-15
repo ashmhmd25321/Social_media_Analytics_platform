@@ -8,10 +8,7 @@ import api from '@/lib/api';
 import { 
   Facebook, 
   Instagram, 
-  Twitter, 
-  Linkedin, 
   Youtube, 
-  Music,
   Link2,
   CheckCircle,
   X,
@@ -53,10 +50,7 @@ export default function AccountsPage() {
   const platformIcons: Record<string, React.ComponentType<any>> = {
     facebook: Facebook,
     instagram: Instagram,
-    twitter: Twitter,
-    linkedin: Linkedin,
     youtube: Youtube,
-    tiktok: Music,
   };
 
   useEffect(() => {
@@ -70,12 +64,17 @@ export default function AccountsPage() {
       console.log('Platforms response:', response);
       if (response.success && response.data) {
         setPlatforms(Array.isArray(response.data) ? response.data : []);
+        setError(''); // Clear any previous errors
       } else {
         setPlatforms([]);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching platforms:', error);
       setPlatforms([]);
+      // Show helpful error message if backend is not reachable
+      if (error.message && error.message.includes('Unable to connect')) {
+        setError('Backend server is not running. Please start the backend server on port 5001.');
+      }
     } finally {
       setLoading(false);
     }
@@ -87,12 +86,20 @@ export default function AccountsPage() {
       console.log('Connected accounts response:', response);
       if (response.success && response.data) {
         setConnectedAccounts(Array.isArray(response.data) ? response.data : []);
+        setError(''); // Clear any previous errors
       } else {
         setConnectedAccounts([]);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching connected accounts:', error);
       setConnectedAccounts([]);
+      // Show helpful error message if backend is not reachable
+      if (error.message && error.message.includes('Unable to connect')) {
+        setError('Backend server is not running. Please start the backend server on port 5001.');
+      } else if (error.message && error.message.includes('Session expired')) {
+        // Don't show error for session expiration, it's handled by redirect
+        setError('');
+      }
     }
   };
 
@@ -101,17 +108,50 @@ export default function AccountsPage() {
       setConnecting(platformName);
       setError('');
       
-      const response = await api.post<{ success: boolean; data?: { authUrl?: string } }>(`/social/connect/${platformName}`);
-      if (response.data?.success && response.data?.data?.authUrl) {
+      console.log(`[DEBUG] Initiating OAuth connection for platform: ${platformName}`);
+      
+      const response = await api.post<{ authUrl?: string; stateToken?: string }>(`/social/connect/${platformName}`);
+      
+      console.log(`[DEBUG] OAuth initiation response:`, response);
+      
+      // The API client returns { success, data, message }
+      // So response.data contains the actual data from backend
+      if (response.success && response.data?.authUrl) {
+        console.log(`[DEBUG] Redirecting to OAuth URL: ${response.data.authUrl}`);
         // Redirect to OAuth authorization page
-        window.location.href = response.data.data.authUrl;
+        window.location.href = response.data.authUrl;
       } else {
-        setError('Failed to initiate connection');
+        const errorMsg = response.message || 'Failed to initiate connection';
+        console.error(`[DEBUG] OAuth initiation failed:`, {
+          success: response.success,
+          message: response.message,
+          data: response.data,
+        });
+        setError(errorMsg);
         setConnecting(null);
       }
     } catch (error: any) {
-      console.error('Error connecting platform:', error);
-      setError(error.response?.data?.message || 'Failed to connect platform');
+      console.error('[DEBUG] Error connecting platform:', error);
+      console.error('[DEBUG] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        response: error.response,
+      });
+      
+      // Handle different error types
+      let errorMessage = 'Failed to initiate connection';
+      
+      if (error.message) {
+        if (error.message.includes('Unable to connect')) {
+          errorMessage = 'Backend server is not running. Please start the backend server on port 5001.';
+        } else if (error.message.includes('Session expired')) {
+          errorMessage = 'Your session has expired. Please login again.';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      setError(errorMessage);
       setConnecting(null);
     }
   };
@@ -241,8 +281,13 @@ export default function AccountsPage() {
               Connected Accounts
             </h1>
             <p className="text-white/80 text-lg">
-              Connect your social media accounts to start tracking analytics
+              Connect your social media accounts using OAuth
             </p>
+            <div className="mt-4 bg-blue-500/20 backdrop-blur-xl border border-blue-400/30 rounded-xl p-4">
+              <p className="text-blue-200 text-sm">
+                <strong>How it works:</strong> Click "Connect Account" to sign in with your social media account. Each user connects their own account and sees their own analytics data.
+              </p>
+            </div>
           </motion.div>
 
           {/* Error Message */}
@@ -358,6 +403,17 @@ export default function AccountsPage() {
             <h2 className="text-2xl md:text-3xl font-heading font-bold text-white mb-6">
               Available Platforms
             </h2>
+            {platforms.length === 0 ? (
+              <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 border border-white/20 text-center">
+                <p className="text-white/70 mb-4">No platforms available. Make sure the backend is running and the database has platform entries.</p>
+                <button
+                  onClick={() => fetchPlatforms()}
+                  className="px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white rounded-lg transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {platforms.map((platform, index) => {
                 const IconComponent = platformIcons[platform.name.toLowerCase()] || Link2;
@@ -400,30 +456,34 @@ export default function AccountsPage() {
                           </button>
                         </div>
                       ) : (
-                        <button
-                          onClick={() => handleConnect(platform.name)}
-                          disabled={connecting === platform.name}
-                          className="mt-4 w-full bg-gradient-to-r from-primary-500 to-secondary-500 hover:from-primary-600 hover:to-secondary-600 text-white font-semibold py-3 px-6 rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-primary-500/30 hover:shadow-xl"
-                        >
-                          {connecting === platform.name ? (
-                            <>
-                              <Loader2 className="w-5 h-5 animate-spin" />
-                              Connecting...
-                            </>
-                          ) : (
-                            <>
-                              <Link2 className="w-5 h-5" />
-                              Connect
-                            </>
-                          )}
-                        </button>
+                        <div className="w-full">
+                          <button
+                            onClick={() => handleConnect(platform.name)}
+                            disabled={connecting === platform.name}
+                            className="w-full bg-gradient-to-r from-primary-500 to-secondary-500 hover:from-primary-600 hover:to-secondary-600 text-white font-semibold py-3 px-6 rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-primary-500/30 hover:shadow-xl"
+                          >
+                            {connecting === platform.name ? (
+                              <>
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                                Connecting...
+                              </>
+                            ) : (
+                              <>
+                                <Link2 className="w-5 h-5" />
+                                Connect Account
+                              </>
+                            )}
+                          </button>
+                        </div>
                       )}
                     </div>
                   </motion.div>
                 );
               })}
             </div>
+            )}
           </motion.div>
+
         </div>
       </div>
     </ProtectedRoute>

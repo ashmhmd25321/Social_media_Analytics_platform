@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { SkipToContent } from "@/components/common/SkipToContent";
+import AppFrame from "@/components/layout/AppFrame";
 
 export const metadata: Metadata = {
   title: "MetricPulse - Social Media Analytics Platform",
@@ -24,9 +25,7 @@ export default function RootLayout({
       <body>
         <SkipToContent />
         <AuthProvider>
-          <main id="main-content">
-            {children}
-          </main>
+          <AppFrame>{children}</AppFrame>
         </AuthProvider>
       </body>
     </html>

@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import { analyticsController } from '../controllers/analyticsController';
 import { authenticate } from '../middleware/auth';
+import { cacheMiddleware } from '../middleware/cache';
 
 const router = Router();
 
 // All analytics routes require authentication
 router.use(authenticate);
+
+// Apply caching to GET routes (5 minutes TTL)
+router.use(cacheMiddleware(5 * 60 * 1000));
 
 // Overview metrics
 router.get('/overview', (req, res) => analyticsController.getOverview(req, res));
@@ -21,6 +25,12 @@ router.get('/posts/top', (req, res) => analyticsController.getTopPosts(req, res)
 
 // Platform comparison
 router.get('/platforms/comparison', (req, res) => analyticsController.getPlatformComparison(req, res));
+
+// Audience analytics
+router.get('/audience', (req, res) => analyticsController.getAudienceMetrics(req, res));
+
+// Content analytics
+router.get('/content/types', (req, res) => analyticsController.getContentTypeBreakdown(req, res));
 
 export default router;
 

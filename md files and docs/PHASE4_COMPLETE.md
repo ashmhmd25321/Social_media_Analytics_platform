@@ -137,10 +137,13 @@ FACEBOOK_REDIRECT_URI=http://localhost:5001/api/social/callback/facebook
 ## ⚠️ Platform-Specific Notes
 
 ### Facebook/Instagram
-- ✅ Implementation complete
-- ⚠️ Requires valid OAuth tokens
-- ⚠️ Requires Facebook App with proper permissions
-- ⚠️ Rate limits apply (varies by app tier)
+- ✅ **Implementation complete** - Real Facebook Graph API integration
+- ⚠️ **Requires configuration:** Facebook App ID & Secret (FREE to get)
+- ⚠️ **Requires OAuth tokens:** Users must connect their accounts
+- ⚠️ **Rate limits apply:** 200 calls/hour per user (free tier)
+- ✅ **Not fake:** Uses real API calls, falls back to mock data only if no credentials
+
+**📖 See `FACEBOOK_OAUTH_SETUP.md` for complete setup instructions (takes ~10 minutes)**
 
 ### Other Platforms
 - ⏳ Twitter/X - Structure ready, needs implementation
@@ -180,5 +183,13 @@ The foundation for Phase 4 is complete and ready for testing. Facebook/Instagram
 
 ---
 
-**Phase 4 Status:** ✅ **INFRASTRUCTURE COMPLETE** (Ready for Testing with Facebook/Instagram)
+**Phase 4 Status:** ✅ **CODE COMPLETE** (Real API implementation ready, needs OAuth configuration)
+
+**Important:** The implementation is **NOT fake** - it uses real Facebook Graph API. You just need to:
+1. Create a free Facebook App (5 minutes)
+2. Get App ID & Secret
+3. Add to `.env` file
+4. Test connection
+
+See `FACEBOOK_OAUTH_SETUP.md` for detailed setup guide.
 

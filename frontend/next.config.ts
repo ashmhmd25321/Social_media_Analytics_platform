@@ -23,6 +23,16 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ['lucide-react', 'recharts', 'framer-motion'],
   },
 
+  // Compiler optimizations
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production' ? {
+      exclude: ['error', 'warn'],
+    } : false,
+  },
+
+  // Output configuration
+  output: 'standalone',
+
   // Turbopack is enabled by default in Next.js 16
   // Webpack config removed - Turbopack handles code splitting automatically
 

@@ -52,6 +52,13 @@ export class AuthController {
         role: user.role,
       });
 
+      // Auto-connect default platform accounts (non-blocking)
+      import('../services/AutoConnectService').then(({ AutoConnectService }) => {
+        AutoConnectService.autoConnectPlatformsForUser(user.id).catch(err => {
+          console.error('Error auto-connecting platforms:', err);
+        });
+      });
+
       // TODO: Send verification email with verificationToken
       // For now, we'll include it in the response (remove in production)
       console.log('Email verification token:', verificationToken);

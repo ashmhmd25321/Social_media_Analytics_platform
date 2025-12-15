@@ -5,6 +5,7 @@ import { dataCollectionService } from './DataCollectionService';
 import { dataCollectionJobModel } from '../models/DataCollection';
 import { postPublishingService } from './PostPublishingService';
 import { alertService } from './AlertService';
+import { scheduledReportService } from './ScheduledReportService';
 import { pool } from '../config/database';
 
 interface ScheduledJob {
@@ -40,6 +41,9 @@ class SchedulerService {
 
     // Schedule alert checking (every 5 minutes)
     this.scheduleAlertChecking();
+
+    // Schedule report generation (every hour)
+    this.scheduleReportGeneration();
   }
 
   /**
@@ -154,6 +158,20 @@ class SchedulerService {
       }
     });
     console.log('✅ Alert checking scheduled (every 5 minutes)');
+  }
+
+  /**
+   * Schedule scheduled report generation (runs every hour)
+   */
+  private scheduleReportGeneration(): void {
+    cron.schedule('0 * * * *', async () => {
+      try {
+        await scheduledReportService.processDueReports();
+      } catch (error) {
+        console.error('Error in scheduled report generation:', error);
+      }
+    });
+    console.log('✅ Scheduled report generation scheduled (every hour)');
   }
 
   /**

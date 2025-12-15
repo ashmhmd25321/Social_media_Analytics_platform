@@ -528,9 +528,148 @@ class InsightModel {
   }
 }
 
+export interface ScheduledReport {
+  id?: number;
+  user_id: number;
+  report_template_id: number;
+  schedule_type: 'daily' | 'weekly' | 'monthly' | 'custom';
+  schedule_config: Record<string, any>;
+  recipients: string[]; // Email addresses
+  format: 'pdf' | 'excel' | 'html';
+  is_active: boolean;
+  last_generated_at?: Date;
+  next_generation_at?: Date;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+class ScheduledReportModel {
+  async create(scheduledReport: ScheduledReport): Promise<number> {
+    const [result] = await pool.execute<ResultSetHeader>(
+      `INSERT INTO scheduled_reports (
+        user_id, report_template_id, schedule_type, schedule_config, recipients, format, is_active, next_generation_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        scheduledReport.user_id,
+        scheduledReport.report_template_id,
+        scheduledReport.schedule_type,
+        JSON.stringify(scheduledReport.schedule_config),
+        JSON.stringify(scheduledReport.recipients),
+        scheduledReport.format,
+        scheduledReport.is_active !== undefined ? scheduledReport.is_active : true,
+        scheduledReport.next_generation_at || null,
+      ]
+    );
+    return result.insertId;
+  }
+
+  async findById(id: number, userId: number): Promise<ScheduledReport | null> {
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT * FROM scheduled_reports WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
+    if (rows.length === 0) return null;
+    return this.mapRowToScheduledReport(rows[0]);
+  }
+
+  async findByUser(userId: number, isActive?: boolean): Promise<ScheduledReport[]> {
+    let query = 'SELECT * FROM scheduled_reports WHERE user_id = ?';
+    const params: any[] = [userId];
+    
+    if (isActive !== undefined) {
+      query += ' AND is_active = ?';
+      params.push(isActive);
+    }
+    
+    query += ' ORDER BY created_at DESC';
+    
+    const [rows] = await pool.execute<RowDataPacket[]>(query, params);
+    return rows.map(row => this.mapRowToScheduledReport(row));
+  }
+
+  async findDueReports(): Promise<ScheduledReport[]> {
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT * FROM scheduled_reports 
+       WHERE is_active = TRUE 
+       AND next_generation_at <= NOW() 
+       ORDER BY next_generation_at ASC`
+    );
+    return rows.map(row => this.mapRowToScheduledReport(row));
+  }
+
+  async update(id: number, userId: number, updates: Partial<ScheduledReport>): Promise<boolean> {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (updates.schedule_type !== undefined) {
+      fields.push('schedule_type = ?');
+      values.push(updates.schedule_type);
+    }
+    if (updates.schedule_config !== undefined) {
+      fields.push('schedule_config = ?');
+      values.push(JSON.stringify(updates.schedule_config));
+    }
+    if (updates.recipients !== undefined) {
+      fields.push('recipients = ?');
+      values.push(JSON.stringify(updates.recipients));
+    }
+    if (updates.format !== undefined) {
+      fields.push('format = ?');
+      values.push(updates.format);
+    }
+    if (updates.is_active !== undefined) {
+      fields.push('is_active = ?');
+      values.push(updates.is_active);
+    }
+    if (updates.last_generated_at !== undefined) {
+      fields.push('last_generated_at = ?');
+      values.push(updates.last_generated_at);
+    }
+    if (updates.next_generation_at !== undefined) {
+      fields.push('next_generation_at = ?');
+      values.push(updates.next_generation_at);
+    }
+
+    if (fields.length === 0) return false;
+
+    values.push(id, userId);
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE scheduled_reports SET ${fields.join(', ')}, updated_at = NOW() WHERE id = ? AND user_id = ?`,
+      values
+    );
+    return result.affectedRows > 0;
+  }
+
+  async delete(id: number, userId: number): Promise<boolean> {
+    const [result] = await pool.execute<ResultSetHeader>(
+      'DELETE FROM scheduled_reports WHERE id = ? AND user_id = ?',
+      [id, userId]
+    );
+    return result.affectedRows > 0;
+  }
+
+  private mapRowToScheduledReport(row: RowDataPacket): ScheduledReport {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      report_template_id: row.report_template_id,
+      schedule_type: row.schedule_type,
+      schedule_config: row.schedule_config ? (typeof row.schedule_config === 'string' ? JSON.parse(row.schedule_config) : row.schedule_config) : {},
+      recipients: row.recipients ? (typeof row.recipients === 'string' ? JSON.parse(row.recipients) : row.recipients) : [],
+      format: row.format,
+      is_active: row.is_active,
+      last_generated_at: row.last_generated_at,
+      next_generation_at: row.next_generation_at,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+}
+
 export const reportModel = new ReportModel();
 export const reportTemplateModel = new ReportTemplateModel();
 export const alertModel = new AlertModel();
 export const notificationModel = new NotificationModel();
 export const insightModel = new InsightModel();
+export const scheduledReportModel = new ScheduledReportModel();
 

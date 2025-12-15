@@ -290,6 +290,136 @@ class AnalyticsService {
       engagementRate: parseFloat(row.engagement_rate || '0'),
     }));
   }
+
+  /**
+   * Get audience analytics metrics
+   */
+  async getAudienceMetrics(userId: number): Promise<{
+    totalFollowers: number;
+    followerGrowth: number;
+    newFollowers: number;
+    peakActivityHours: Array<{ hour: number; activity: number }>;
+    platformBreakdown: Array<{ platform: string; followers: number; percentage: number }>;
+  }> {
+    const accounts = await UserSocialAccountModelInstance.findByUserId(userId);
+    const accountIds = accounts.map(acc => acc.id!);
+
+    if (accountIds.length === 0) {
+      return {
+        totalFollowers: 0,
+        followerGrowth: 0,
+        newFollowers: 0,
+        peakActivityHours: [],
+        platformBreakdown: [],
+      };
+    }
+
+    // Get total followers
+    const [followerRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT SUM(fm.follower_count) as total_followers
+       FROM follower_metrics fm
+       WHERE fm.account_id IN (${accountIds.map(() => '?').join(',')})
+       AND fm.recorded_at = (
+         SELECT MAX(recorded_at) 
+         FROM follower_metrics fm2 
+         WHERE fm2.account_id = fm.account_id
+       )`,
+      accountIds
+    );
+    const totalFollowers = followerRows[0]?.total_followers || 0;
+
+    // Calculate growth (compare current vs 7 days ago)
+    const [growthRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT 
+         SUM(CASE WHEN fs.snapshot_date >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) THEN fs.follower_count ELSE 0 END) as current_followers,
+         SUM(CASE WHEN fs.snapshot_date = DATE_SUB(CURDATE(), INTERVAL 7 DAY) THEN fs.follower_count ELSE 0 END) as past_followers
+       FROM follower_snapshots fs
+       WHERE fs.account_id IN (${accountIds.map(() => '?').join(',')})
+       AND (fs.snapshot_date >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) 
+            OR fs.snapshot_date = DATE_SUB(CURDATE(), INTERVAL 7 DAY))`,
+      accountIds
+    );
+    
+    const currentFollowers = growthRows[0]?.current_followers || totalFollowers;
+    const pastFollowers = growthRows[0]?.past_followers || totalFollowers;
+    const followerGrowth = pastFollowers > 0 
+      ? ((currentFollowers - pastFollowers) / pastFollowers) * 100 
+      : 0;
+    const newFollowers = Math.max(0, currentFollowers - pastFollowers);
+
+    // Get platform breakdown
+    const [platformRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT 
+         sp.name as platform,
+         MAX(fm.follower_count) as followers
+       FROM user_social_accounts usa
+       INNER JOIN social_platforms sp ON usa.platform_id = sp.id
+       LEFT JOIN follower_metrics fm ON usa.id = fm.account_id
+       WHERE usa.user_id = ? AND usa.is_active = TRUE
+       GROUP BY sp.name, sp.id`,
+      [userId]
+    );
+
+    const platformBreakdown = platformRows.map(row => ({
+      platform: row.platform || 'unknown',
+      followers: row.followers || 0,
+      percentage: totalFollowers > 0 ? (row.followers / totalFollowers) * 100 : 0,
+    }));
+
+    // Mock peak activity hours (would need post engagement data by hour)
+    // In production, this would analyze engagement_snapshots by hour
+    const peakActivityHours = [
+      { hour: 9, activity: 85 },
+      { hour: 12, activity: 120 },
+      { hour: 15, activity: 95 },
+      { hour: 18, activity: 140 },
+      { hour: 21, activity: 110 },
+    ];
+
+    return {
+      totalFollowers,
+      followerGrowth: parseFloat(followerGrowth.toFixed(2)),
+      newFollowers,
+      peakActivityHours,
+      platformBreakdown,
+    };
+  }
+
+  /**
+   * Get content type breakdown
+   */
+  async getContentTypeBreakdown(userId: number): Promise<{
+    text: number;
+    image: number;
+    video: number;
+    carousel: number;
+  }> {
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT 
+         content_type,
+         COUNT(*) as count
+       FROM social_posts
+       WHERE user_id = ? AND is_deleted = FALSE
+       GROUP BY content_type`,
+      [userId]
+    );
+
+    const breakdown = {
+      text: 0,
+      image: 0,
+      video: 0,
+      carousel: 0,
+    };
+
+    rows.forEach(row => {
+      const type = (row.content_type || 'text').toLowerCase();
+      if (type in breakdown) {
+        breakdown[type as keyof typeof breakdown] = row.count || 0;
+      }
+    });
+
+    return breakdown;
+  }
 }
 
 export const analyticsService = new AnalyticsService();
