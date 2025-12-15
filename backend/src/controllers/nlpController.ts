@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { nlpService } from '../services/NLPService';
+import { pythonMLService } from '../services/PythonMLService';
 import { contentRecommendationService } from '../services/ContentRecommendationService';
 import { pool } from '../config/database';
 import { RowDataPacket } from 'mysql2/promise';
@@ -18,11 +19,44 @@ export class NLPController {
         return;
       }
 
-      const sentiment = nlpService.analyzeSentiment(text);
+      // Prefer Python ML service for sentiment analysis
+      const pythonResponse = await pythonMLService.advancedSentimentAnalysis(text);
+
+      if (pythonResponse.success && pythonResponse.data) {
+        const py = pythonResponse.data as any;
+
+        const sentiment = {
+          // Map Python VADER compound score into existing shape
+          score: py.compound ?? 0,
+          comparative: py.compound ?? 0,
+          classification: (py.classification || 'neutral') as 'positive' | 'neutral' | 'negative',
+          // Python service does not return emotion labels separately; reuse classification
+          emotion: py.classification || 'neutral',
+          emotionConfidence: typeof py.confidence === 'number' ? py.confidence : Math.abs(py.compound ?? 0),
+          positive: [] as string[],
+          negative: [] as string[],
+          tokens: [] as string[],
+          // Keep raw Python payload for clients that want more detail
+          raw: py,
+        };
+
+        res.status(200).json({
+          success: true,
+          data: sentiment,
+        });
+        return;
+      }
+
+      // Fallback to Node.js sentiment if Python service is unavailable
+      const fallbackSentiment = nlpService.analyzeSentiment(text);
 
       res.status(200).json({
         success: true,
-        data: sentiment,
+        data: fallbackSentiment,
+        meta: {
+          engine: 'node-fallback',
+          pythonAvailable: false,
+        },
       });
     } catch (error: any) {
       console.error('Error analyzing sentiment:', error);
@@ -48,7 +82,7 @@ export class NLPController {
 
       // Get post content
       const [rows] = await pool.execute<RowDataPacket[]>(
-        `SELECT content, sentiment_score, sentiment_classification
+        `SELECT content, sentiment_score, sentiment_comparative, sentiment_classification
          FROM social_posts
          WHERE id = ? AND user_id = ? AND is_deleted = FALSE`,
         [postId, userId]
@@ -59,33 +93,67 @@ export class NLPController {
         return;
       }
 
-      const post = rows[0];
-      let sentiment;
+      const post = rows[0] as any;
+      let sentiment: any;
 
       // If sentiment already analyzed, return it; otherwise analyze
-      if (post.sentiment_score !== null) {
+      if (post.sentiment_score !== null && post.sentiment_classification) {
         sentiment = {
           score: parseFloat(post.sentiment_score),
+          comparative: typeof post.sentiment_comparative === 'number'
+            ? post.sentiment_comparative
+            : parseFloat(post.sentiment_comparative || post.sentiment_score),
           classification: post.sentiment_classification,
           cached: true,
         };
       } else {
-        sentiment = nlpService.analyzeSentiment(post.content || '');
-        
-        // Update post with sentiment
-        await pool.execute(
-          `UPDATE social_posts
-           SET sentiment_score = ?,
-               sentiment_comparative = ?,
-               sentiment_classification = ?
-           WHERE id = ?`,
-          [
-            sentiment.score,
-            sentiment.comparative,
-            sentiment.classification,
-            postId,
-          ]
-        );
+        // Prefer Python ML service
+        const pythonResponse = await pythonMLService.advancedSentimentAnalysis(post.content || '');
+
+        if (pythonResponse.success && pythonResponse.data) {
+          const py = pythonResponse.data as any;
+          sentiment = {
+            score: py.compound ?? 0,
+            comparative: py.compound ?? 0,
+            classification: (py.classification || 'neutral') as 'positive' | 'neutral' | 'negative',
+            emotion: py.classification || 'neutral',
+            emotionConfidence: typeof py.confidence === 'number' ? py.confidence : Math.abs(py.compound ?? 0),
+            raw: py,
+          };
+
+          // Update post with sentiment using Python results
+          await pool.execute(
+            `UPDATE social_posts
+             SET sentiment_score = ?,
+                 sentiment_comparative = ?,
+                 sentiment_classification = ?
+             WHERE id = ?`,
+            [
+              sentiment.score,
+              sentiment.comparative,
+              sentiment.classification,
+              postId,
+            ]
+          );
+        } else {
+          // Fallback to Node.js sentiment
+          const fallback = nlpService.analyzeSentiment(post.content || '');
+          sentiment = { ...fallback, engine: 'node-fallback' };
+
+          await pool.execute(
+            `UPDATE social_posts
+             SET sentiment_score = ?,
+                 sentiment_comparative = ?,
+                 sentiment_classification = ?
+             WHERE id = ?`,
+            [
+              fallback.score,
+              fallback.comparative,
+              fallback.classification,
+              postId,
+            ]
+          );
+        }
       }
 
       res.status(200).json({

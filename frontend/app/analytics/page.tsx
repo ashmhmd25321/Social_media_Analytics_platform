@@ -25,7 +25,7 @@ export default function AnalyticsPage() {
       description: 'Key metrics and performance summary',
       icon: BarChart3,
       gradient: 'from-blue-500 to-cyan-500',
-      href: '/analytics',
+      href: '/dashboard',
     },
     {
       id: 'audience' as const,
