@@ -43,7 +43,8 @@ export default function TemplatesPage() {
   const fetchTemplates = async () => {
     try {
       setLoading(true);
-      const response = await api.get<{ data: Template[] }>('/content/templates');
+      // Use cache with short TTL (60 seconds) - templates don't change often
+      const response = await api.get<{ data: Template[] }>('/content/templates', true, 60 * 1000);
       if (response.success && response.data) {
         setTemplates(Array.isArray(response.data) ? response.data : []);
       }

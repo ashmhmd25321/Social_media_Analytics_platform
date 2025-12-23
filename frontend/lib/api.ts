@@ -18,6 +18,7 @@ class ApiClient {
   private baseURL: string;
   private isRefreshing: boolean = false;
   private refreshPromise: Promise<string | null> | null = null;
+  private pendingRequests: Map<string, Promise<ApiResponse<any>>> = new Map();
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
@@ -93,9 +94,9 @@ class ApiClient {
   ): Promise<ApiResponse<T>> {
     const token = authStorage.getAccessToken();
 
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...(options.headers as Record<string, string> || {}),
     };
 
     if (token) {
@@ -146,10 +147,10 @@ class ApiClient {
         
         if (newToken) {
           // Retry the request with the new token
-          headers['Authorization'] = `Bearer ${newToken}`;
+          (headers as Record<string, string>)['Authorization'] = `Bearer ${newToken}`;
           const retryResponse = await fetch(`${this.baseURL}${endpoint}`, {
             ...options,
-            headers,
+            headers: headers as HeadersInit,
             credentials: 'include',
           }).catch((fetchError) => {
             console.error('Network error on retry:', fetchError);
@@ -185,8 +186,8 @@ class ApiClient {
     }
   }
 
-  async get<T>(endpoint: string, useCache: boolean = true, ttl: number = 5 * 60 * 1000): Promise<ApiResponse<T>> {
-    // Check cache first for GET requests
+  async get<T>(endpoint: string, useCache: boolean = true, ttl: number = 30 * 1000): Promise<ApiResponse<T>> {
+    // Check cache first for GET requests (with shorter default TTL - 30 seconds)
     if (useCache) {
       const cacheKey = apiCache.generateKey(endpoint);
       const cached = apiCache.get<T>(cacheKey);
@@ -195,15 +196,45 @@ class ApiClient {
       }
     }
 
-    const response = await this.request<T>(endpoint, { method: 'GET' });
-    
-    // Cache successful responses
-    if (useCache && response.success && response.data) {
-      const cacheKey = apiCache.generateKey(endpoint);
-      apiCache.set(cacheKey, response.data, ttl);
+    // Request deduplication - if same request is already in flight, reuse it
+    const requestKey = `GET:${endpoint}`;
+    if (this.pendingRequests.has(requestKey)) {
+      return this.pendingRequests.get(requestKey)! as Promise<ApiResponse<T>>;
     }
 
-    return response;
+    // Create new request
+    const requestPromise = this.request<T>(endpoint, { method: 'GET' }).then(response => {
+      // Remove from pending requests
+      this.pendingRequests.delete(requestKey);
+      
+      // Cache successful responses
+      if (useCache && response.success && response.data) {
+        const cacheKey = apiCache.generateKey(endpoint);
+        apiCache.set(cacheKey, response.data, ttl);
+      }
+      
+      return response;
+    }).catch(error => {
+      // Remove from pending requests on error
+      this.pendingRequests.delete(requestKey);
+      
+      // Return error response instead of throwing for network errors
+      // This allows components to handle errors gracefully
+      if (error instanceof Error && error.message.includes('Failed to fetch')) {
+        return {
+          success: false,
+          message: 'Network error: Unable to connect to the server. Please check if the backend is running.',
+          data: undefined,
+        } as ApiResponse<T>;
+      }
+      
+      throw error;
+    });
+
+    // Store pending request
+    this.pendingRequests.set(requestKey, requestPromise);
+
+    return requestPromise;
   }
 
   async post<T>(endpoint: string, body?: any): Promise<ApiResponse<T>> {

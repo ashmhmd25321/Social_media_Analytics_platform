@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import { motion } from 'framer-motion';
 import { Lightbulb, TrendingUp, AlertCircle, Target, X, RefreshCw, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
@@ -27,14 +28,11 @@ export default function InsightsPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
 
-  useEffect(() => {
-    fetchInsights();
-  }, []);
-
   const fetchInsights = async () => {
     try {
       setLoading(true);
-      const response = await api.get<{ data: Insight[] }>('/insights');
+      // DISABLE CACHE for fresh data
+      const response = await api.get<{ data: Insight[] }>('/insights', false);
       if (response.success && response.data) {
         setInsights(Array.isArray(response.data) ? response.data : []);
       }
@@ -45,11 +43,17 @@ export default function InsightsPage() {
     }
   };
 
+  // Use the refresh hook to refetch data when page becomes visible or when navigating back
+  usePageRefresh(fetchInsights, []);
+
   const generateInsights = async () => {
     try {
       setGenerating(true);
       const response = await api.post('/insights/generate');
       if (response.success) {
+        // Clear cache for insights
+        const { apiCache } = require('@/lib/cache');
+        apiCache.delete(apiCache.generateKey('/insights'));
         await fetchInsights();
       }
     } catch (error) {

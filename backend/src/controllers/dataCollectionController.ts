@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { dataCollectionService } from '../services/DataCollectionService';
-import { UserSocialAccountModelInstance } from '../models/SocialPlatform';
+import { UserSocialAccountModelInstance, UserSocialAccount } from '../models/SocialPlatform';
 import { postModel, engagementMetricsModel, followerMetricsModel } from '../models/Post';
 import { dataCollectionJobModel } from '../models/DataCollection';
 import { authenticate } from '../middleware/auth';
@@ -50,7 +50,24 @@ export class DataCollectionController {
         since: req.query.since ? new Date(req.query.since as string) : undefined,
       };
 
+      // The findById query includes platform_name and platform_type from the JOIN
+      const accountWithPlatform = account as UserSocialAccount & { platform_name?: string; platform_type?: string };
+      const platformType = accountWithPlatform.platform_type || accountWithPlatform.platform_name || 'unknown';
+      
+      console.log(`[Data Collection] Starting sync for account ${accountId} (${platformType} platform)`);
+      console.log(`[Data Collection] Account details:`, {
+        platform_account_id: account.platform_account_id,
+        platform_username: account.platform_username,
+        has_access_token: !!account.access_token,
+      });
+
       const data = await dataCollectionService.collectAccountData(account, options);
+
+      console.log(`[Data Collection] Sync completed for account ${accountId}:`, {
+        posts_collected: data.posts.length,
+        engagement_metrics: data.engagementMetrics.size,
+        follower_metrics: data.followerMetrics ? 1 : 0,
+      });
 
       res.json({
         success: true,
@@ -62,10 +79,17 @@ export class DataCollectionController {
         },
       });
     } catch (error) {
-      console.error('Error collecting account data:', error);
+      console.error('[Data Collection] Error collecting account data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[Data Collection] Error details:', {
+        accountId: req.params.accountId,
+        error: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       res.status(500).json({
+        success: false,
         error: 'Failed to collect data',
-        message: error instanceof Error ? error.message : 'Unknown error',
+        message: errorMessage,
       });
     }
   }

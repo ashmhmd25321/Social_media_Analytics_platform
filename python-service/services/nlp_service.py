@@ -130,18 +130,24 @@ class NLPService:
         
         return result
     
-    def advanced_sentiment_analysis(self, text: str) -> Dict[str, Any]:
+    def advanced_sentiment_analysis(self, text: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Advanced sentiment analysis using VADER and additional features
-        Returns: {
-            'compound': float,
-            'pos': float,
-            'neu': float,
-            'neg': float,
-            'classification': str,
-            'confidence': float,
-            'sentences': []
-        }
+        Advanced sentiment analysis using ML models and ensemble methods
+        Uses the new advanced_sentiment_service for professional ML-based analysis
+        Returns comprehensive sentiment analysis with recommendations
+        """
+        # Try to use the advanced ML-based service
+        try:
+            from services.advanced_sentiment_service import advanced_sentiment_analysis as advanced_analyze
+            return advanced_analyze(text, context)
+        except ImportError:
+            # Fallback to original VADER-based analysis if advanced service not available
+            print("Advanced sentiment service not available, using VADER fallback")
+            return self._vader_sentiment_analysis(text)
+    
+    def _vader_sentiment_analysis(self, text: str) -> Dict[str, Any]:
+        """
+        Fallback VADER-based sentiment analysis
         """
         if not text:
             return {
@@ -151,7 +157,9 @@ class NLPService:
                 'neg': 0.0,
                 'classification': 'neutral',
                 'confidence': 0.0,
-                'sentences': []
+                'sentences': [],
+                'recommendations': [],
+                'recommendation_count': 0
             }
         
         # VADER sentiment scores
@@ -181,7 +189,9 @@ class NLPService:
             'neg': scores['neg'],
             'classification': classification,
             'confidence': confidence,
-            'sentences': sentence_sentiments
+            'sentences': sentence_sentiments,
+            'recommendations': [],
+            'recommendation_count': 0
         }
     
     def _classify_sentiment(self, compound_score: float) -> str:

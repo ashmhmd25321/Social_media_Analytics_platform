@@ -87,12 +87,17 @@ class YouTubeService {
       const posts: SocialPost[] = [];
       const engagementMetrics = new Map<number, PostEngagementMetrics>();
       
+      // Validate channel ID
+      if (!account.platform_account_id) {
+        throw new Error('YouTube channel ID is required. Please ensure the account has a valid channel ID configured.');
+      }
+      
       // Get channel info
       const channelInfo = await this.getChannelInfo(account.platform_account_id);
       const followerMetrics: FollowerMetrics | undefined = channelInfo 
         ? {
             account_id: account.id!,
-            followers_count: parseInt(channelInfo.statistics?.subscriberCount || '0'),
+            follower_count: parseInt(channelInfo.statistics?.subscriberCount || '0'),
             following_count: 0, // YouTube doesn't provide this
             posts_count: parseInt(channelInfo.statistics?.videoCount || '0'),
             recorded_at: new Date(),
@@ -146,8 +151,8 @@ class YouTubeService {
         };
 
         // Calculate engagement rate
-        const totalEngagement = metrics.likes_count + metrics.comments_count + metrics.saves_count;
-        if (metrics.views_count > 0) {
+        const totalEngagement = (metrics.likes_count || 0) + (metrics.comments_count || 0) + (metrics.saves_count || 0);
+        if (metrics.views_count && metrics.views_count > 0) {
           metrics.engagement_rate = (totalEngagement / metrics.views_count) * 100;
         }
 
@@ -184,7 +189,17 @@ class YouTubeService {
       return null;
     } catch (error: any) {
       console.error('Error fetching YouTube channel info:', error);
-      return null;
+      if (error.response?.status === 401) {
+        const authType = this.isApiKey ? 'API key' : 'OAuth token';
+        throw new Error(`YouTube authentication failed (401). Please check your ${authType} is valid and has the required permissions.`);
+      }
+      if (error.response?.status === 403) {
+        throw new Error('YouTube API access denied (403). Check your API key/token permissions or quota limits.');
+      }
+      if (error.response?.status === 404) {
+        throw new Error(`YouTube channel not found (404). Channel ID "${channelId}" may be incorrect.`);
+      }
+      throw new Error(`Failed to fetch YouTube channel info: ${error.message || 'Unknown error'}`);
     }
   }
 
@@ -261,10 +276,17 @@ class YouTubeService {
       return allVideos.slice(0, limit);
     } catch (error: any) {
       console.error('Error fetching YouTube videos:', error);
-      if (error.response?.status === 403) {
-        throw new Error('YouTube API quota exceeded or access denied. Check your API key/token permissions.');
+      if (error.response?.status === 401) {
+        const authType = this.isApiKey ? 'API key' : 'OAuth token';
+        throw new Error(`YouTube authentication failed (401). Please check your ${authType} is valid and has the required permissions.`);
       }
-      throw error;
+      if (error.response?.status === 403) {
+        throw new Error('YouTube API quota exceeded or access denied (403). Check your API key/token permissions or quota limits.');
+      }
+      if (error.response?.status === 404) {
+        throw new Error(`YouTube channel or playlist not found (404). Channel ID may be incorrect.`);
+      }
+      throw new Error(`Failed to fetch YouTube videos: ${error.message || 'Unknown error'}`);
     }
   }
 

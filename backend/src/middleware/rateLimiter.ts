@@ -14,7 +14,7 @@ const store: RateLimitStore = {};
  * Simple rate limiter middleware
  */
 export const rateLimiter = (
-  maxRequests: number = 100,
+  maxRequests: number = 200, // Increased from 100 to 200
   windowMs: number = 15 * 60 * 1000 // 15 minutes
 ) => {
   return (req: Request, res: Response, next: NextFunction): void => {

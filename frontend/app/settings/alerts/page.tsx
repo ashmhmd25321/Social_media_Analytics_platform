@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import { motion } from 'framer-motion';
 import { Bell, Plus, Edit, Trash2, ToggleLeft, ToggleRight, BellRing } from 'lucide-react';
 import Link from 'next/link';
@@ -41,15 +42,17 @@ export default function AlertsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'alerts' | 'notifications'>('alerts');
 
-  useEffect(() => {
-    fetchAlerts();
-    fetchNotifications();
-    fetchUnreadCount();
-  }, []);
+  const refreshData = async () => {
+    await Promise.all([fetchAlerts(), fetchNotifications(), fetchUnreadCount()]);
+  };
+
+  // Use the refresh hook to refetch data when page becomes visible or when navigating back
+  usePageRefresh(refreshData, []);
 
   const fetchAlerts = async () => {
     try {
-      const response = await api.get<{ data: Alert[] }>('/alerts');
+      // DISABLE CACHE for fresh data
+      const response = await api.get<{ data: Alert[] }>('/alerts', false);
       if (response.success && response.data) {
         setAlerts(Array.isArray(response.data) ? response.data : []);
       }
@@ -62,7 +65,8 @@ export default function AlertsPage() {
 
   const fetchNotifications = async () => {
     try {
-      const response = await api.get<{ data: Notification[] }>('/alerts/notifications?limit=50');
+      // DISABLE CACHE for fresh data
+      const response = await api.get<{ data: Notification[] }>('/alerts/notifications?limit=50', false);
       if (response.success && response.data) {
         setNotifications(Array.isArray(response.data) ? response.data : []);
       }
@@ -73,7 +77,8 @@ export default function AlertsPage() {
 
   const fetchUnreadCount = async () => {
     try {
-      const response = await api.get<{ data: { count: number } }>('/alerts/notifications/unread-count');
+      // DISABLE CACHE for fresh data
+      const response = await api.get<{ data: { count: number } }>('/alerts/notifications/unread-count', false);
       if (response.success && response.data) {
         setUnreadCount(response.data.count);
       }

@@ -23,6 +23,12 @@ router.get('/engagement/trends', (req, res) => analyticsController.getEngagement
 // Top posts
 router.get('/posts/top', (req, res) => analyticsController.getTopPosts(req, res));
 
+// Content performance
+router.get('/content/performance', (req, res) => analyticsController.getContentPerformance(req, res));
+
+// Content type breakdown
+router.get('/content/types', (req, res) => analyticsController.getContentTypeBreakdown(req, res));
+
 // Platform comparison
 router.get('/platforms/comparison', (req, res) => analyticsController.getPlatformComparison(req, res));
 

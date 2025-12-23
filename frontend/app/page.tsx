@@ -1,11 +1,38 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { TrendingUp, Users, Zap, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Navbar from '@/components/layout/Navbar';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function HomePage() {
+  const router = useRouter();
+  const { user, isLoading } = useAuth();
+
+  // Redirect to dashboard if user is already authenticated
+  useEffect(() => {
+    if (!isLoading && user) {
+      router.replace('/dashboard');
+    }
+  }, [user, isLoading, router]);
+
+  // Show loading state while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+      </div>
+    );
+  }
+
+  // Don't render home page if user is authenticated (will redirect)
+  if (user) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen relative flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8 overflow-hidden">
       {/* Background with image overlay - different from login/register pages */}

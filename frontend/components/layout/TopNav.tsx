@@ -12,7 +12,9 @@ import {
   Settings,
   LogOut,
   Activity,
+  Menu,
 } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: Home },
@@ -26,13 +28,14 @@ const navItems = [
 export default function TopNav() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const isActive = (href: string) => pathname === href || pathname?.startsWith(href + '/');
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-white/10 bg-slate-950/80 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6 lg:px-8">
-        <Link href="/dashboard" className="flex items-center gap-2">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+        <Link href="/dashboard" className="flex items-center gap-0.2 mr-6">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-secondary-500 to-primary-500 shadow-lg shadow-secondary-500/30">
             <Activity className="h-5 w-5 text-white" />
           </span>
@@ -44,7 +47,7 @@ export default function TopNav() {
           </span>
         </Link>
 
-        <nav className="hidden flex-1 items-center justify-between md:flex" aria-label="Main navigation">
+        <nav className="hidden flex-1 items-center justify-between xl:flex" aria-label="Main navigation">
           <div className="flex items-center gap-2">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -77,15 +80,32 @@ export default function TopNav() {
                 <span>Guest</span>
               )}
             </div>
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-white/80 transition-colors hover:border-red-400/60 hover:text-red-200 hover:bg-red-500/10"
-            >
-              <LogOut className="h-4 w-4" />
-              <span>Logout</span>
-            </button>
+            {/* Only show logout button if user is logged in */}
+            {user && (
+              <button
+                onClick={logout}
+                className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-white/80 transition-colors hover:border-red-400/60 hover:text-red-200 hover:bg-red-500/10"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Logout</span>
+              </button>
+            )}
           </div>
         </nav>
+
+        {/* Mobile menu button - shows when desktop nav is hidden, positioned on the right */}
+        <button
+          onClick={() => {
+            setMobileMenuOpen(!mobileMenuOpen);
+            // Trigger MobileNav menu via custom event
+            window.dispatchEvent(new CustomEvent('toggleMobileMenu', { detail: !mobileMenuOpen }));
+          }}
+          className="xl:hidden text-white/80 hover:text-white p-2 transition-colors ml-auto"
+          aria-label="Toggle menu"
+          aria-expanded={mobileMenuOpen}
+        >
+          <Menu className="h-6 w-6" />
+        </button>
       </div>
     </header>
   );

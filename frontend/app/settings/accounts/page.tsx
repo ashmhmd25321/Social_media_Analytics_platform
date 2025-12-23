@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 
 interface Platform {
   id: number;
@@ -53,14 +54,54 @@ export default function AccountsPage() {
     youtube: Youtube,
   };
 
+  // Check for OAuth callback success and clear cache
   useEffect(() => {
-    fetchPlatforms();
-    fetchConnectedAccounts();
+    const urlParams = new URLSearchParams(window.location.search);
+    const isSuccess = urlParams.get('success') === 'true' || urlParams.get('connected') === 'true';
+    const hasError = urlParams.get('error');
+    
+    if (isSuccess && !hasError) {
+      // Clear all relevant caches after successful OAuth connection
+      const { apiCache } = require('@/lib/cache');
+      apiCache.delete(apiCache.generateKey('/social/accounts'));
+      apiCache.delete(apiCache.generateKey('/analytics/overview'));
+      apiCache.delete(apiCache.generateKey('/analytics/platforms/comparison'));
+      apiCache.delete(apiCache.generateKey('/analytics/followers/trends'));
+      apiCache.delete(apiCache.generateKey('/analytics/engagement/trends'));
+      apiCache.delete(apiCache.generateKey('/analytics/posts/top'));
+      
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+      
+      // Refresh connected accounts to show the new connection
+      fetchConnectedAccounts(true).then(() => {
+        // After accounts are refreshed, trigger page refresh events
+        // Give a small delay to allow backend data sync to start
+        setTimeout(() => {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('pageRefresh', { detail: '/dashboard' }));
+            window.dispatchEvent(new CustomEvent('pageRefresh', { detail: '/analytics' }));
+            window.dispatchEvent(new CustomEvent('pageRefresh'));
+            // Also refresh router to update any Next.js cached data
+            router.refresh();
+          }
+        }, 1500); // 1.5 second delay to allow backend data sync to start
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const refreshData = async () => {
+    await Promise.all([fetchPlatforms(), fetchConnectedAccounts()]);
+  };
+
+  // Use the refresh hook to refetch data when page becomes visible or when navigating back
+  usePageRefresh(refreshData, []);
 
   const fetchPlatforms = async () => {
     try {
-      const response = await api.get<{ data: Platform[] }>('/social/platforms');
+      // Use cache with short TTL (60 seconds) - platforms don't change often
+      const response = await api.get<{ data: Platform[] }>('/social/platforms', true, 60 * 1000);
       console.log('Platforms response:', response);
       if (response.success && response.data) {
         setPlatforms(Array.isArray(response.data) ? response.data : []);
@@ -80,9 +121,11 @@ export default function AccountsPage() {
     }
   };
 
-  const fetchConnectedAccounts = async () => {
+  const fetchConnectedAccounts = async (bypassCache: boolean = false) => {
     try {
-      const response = await api.get<{ data: ConnectedAccount[] }>('/social/accounts');
+      // Use cache with short TTL (30 seconds) - clear on connect/disconnect
+      // But bypass cache if explicitly requested (e.g., after disconnect)
+      const response = await api.get<{ data: ConnectedAccount[] }>('/social/accounts', !bypassCache, 30 * 1000);
       console.log('Connected accounts response:', response);
       if (response.success && response.data) {
         setConnectedAccounts(Array.isArray(response.data) ? response.data : []);
@@ -161,12 +204,95 @@ export default function AccountsPage() {
       return;
     }
 
+    // Store the account before disconnecting (for potential rollback)
+    const accountToDisconnect = connectedAccounts.find(acc => acc.id === accountId);
+    
     try {
-      await api.delete(`/social/disconnect/${accountId}`);
-      fetchConnectedAccounts();
-    } catch (error) {
+      setError('');
+      setSuccess('');
+      
+      // Clear ALL relevant caches BEFORE disconnecting to ensure fresh data
+      const { apiCache } = require('@/lib/cache');
+      apiCache.delete(apiCache.generateKey('/social/accounts'));
+      apiCache.delete(apiCache.generateKey('/analytics/overview'));
+      apiCache.delete(apiCache.generateKey('/analytics/platforms/comparison'));
+      apiCache.delete(apiCache.generateKey('/analytics/followers/trends'));
+      apiCache.delete(apiCache.generateKey('/analytics/engagement/trends'));
+      apiCache.delete(apiCache.generateKey('/analytics/posts/top'));
+      
+      // OPTIMISTIC UPDATE: Remove from state immediately for instant UI feedback
+      setConnectedAccounts(prev => prev.filter(acc => acc.id !== accountId));
+      
+      // Call the disconnect endpoint - backend will clear its cache
+      const response = await api.delete<{ success: boolean; message?: string }>(`/social/disconnect/${accountId}`);
+      
+      if (response.success) {
+        // Wait a moment for backend to fully process the disconnect
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Force fresh fetch WITHOUT cache to confirm the disconnect
+        // This ensures we're in sync with the backend
+        await fetchConnectedAccounts(true);
+        
+        // Double-check: if account still appears in fresh data, remove it again
+        // This handles edge cases where backend hasn't fully processed yet
+        setConnectedAccounts(prev => {
+          const stillConnected = prev.find(acc => acc.id === accountId);
+          if (stillConnected) {
+            console.warn('[Disconnect] Account still in list after disconnect, removing again');
+            return prev.filter(acc => acc.id !== accountId);
+          }
+          return prev;
+        });
+        
+        setSuccess('Account disconnected successfully');
+        
+        // Trigger page refresh events for dashboard and other pages
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('pageRefresh', { detail: '/dashboard' }));
+          window.dispatchEvent(new CustomEvent('pageRefresh'));
+          // Also trigger refresh for analytics pages
+          window.dispatchEvent(new CustomEvent('pageRefresh', { detail: '/analytics' }));
+        }
+        
+        // Refresh router to update any Next.js cached data
+        router.refresh();
+        
+        setTimeout(() => {
+          setSuccess('');
+        }, 3000);
+      } else {
+        // API call failed - restore the account to state
+        if (accountToDisconnect) {
+          setConnectedAccounts(prev => {
+            // Only add back if not already present
+            if (!prev.find(acc => acc.id === accountId)) {
+              return [...prev, accountToDisconnect];
+            }
+            return prev;
+          });
+        }
+        setError(response.message || 'Failed to disconnect account');
+        // Re-fetch to restore correct state
+        await fetchConnectedAccounts(true);
+      }
+    } catch (error: any) {
       console.error('Error disconnecting account:', error);
-      setError('Failed to disconnect account');
+      
+      // API call failed - restore the account to state
+      if (accountToDisconnect) {
+        setConnectedAccounts(prev => {
+          // Only add back if not already present
+          if (!prev.find(acc => acc.id === accountId)) {
+            return [...prev, accountToDisconnect];
+          }
+          return prev;
+        });
+      }
+      
+      setError(error.response?.data?.message || error.message || 'Failed to disconnect account');
+      // Re-fetch to restore correct state
+      await fetchConnectedAccounts(true);
     }
   };
 
@@ -176,15 +302,48 @@ export default function AccountsPage() {
       setError('');
       setSuccess('');
       
-      const response = await api.post<{ success: boolean; data?: { posts_collected?: number } }>(`/data/collect/${accountId}`);
+      const response = await api.post<{ success: boolean; data?: { posts_collected?: number; engagement_metrics_collected?: number; follower_metrics_collected?: number }; message?: string; error?: string }>(`/data/collect/${accountId}`);
       
-      if (response.data?.success) {
-        setSuccess(`Successfully collected ${response.data.data?.posts_collected || 0} posts!`);
-        setTimeout(() => setSuccess(''), 5000);
+      // Backend returns: { success: true, message: '...', data: { posts_collected: ..., ... } }
+      // So we check response.success (not response.data.success)
+      if (response.success) {
+        // Clear cache for analytics and dashboard data
+        const { apiCache } = require('@/lib/cache');
+        apiCache.delete(apiCache.generateKey('/analytics/overview'));
+        apiCache.delete(apiCache.generateKey('/analytics/followers/trends'));
+        apiCache.delete(apiCache.generateKey('/analytics/engagement/trends'));
+        apiCache.delete(apiCache.generateKey('/analytics/platforms/comparison'));
+        apiCache.delete(apiCache.generateKey('/analytics/posts/top'));
+        
+        const postsCollected = response.data?.posts_collected || 0;
+        const engagementCollected = response.data?.engagement_metrics_collected || 0;
+        const followersCollected = response.data?.follower_metrics_collected || 0;
+        
+        setSuccess(`Successfully synced! Collected ${postsCollected} posts, ${engagementCollected} engagement metrics, and ${followersCollected} follower metrics. Refreshing dashboard...`);
+        
+        // Trigger page refresh events instead of full page reload
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('pageRefresh', { detail: '/dashboard' }));
+          window.dispatchEvent(new CustomEvent('pageRefresh', { detail: '/analytics' }));
+          window.dispatchEvent(new CustomEvent('pageRefresh'));
+          router.refresh();
+        }
+        
+        setTimeout(() => {
+          setSuccess('');
+        }, 3000);
+      } else {
+        setError(response.message || response.error || 'Failed to sync account data');
       }
     } catch (error: any) {
       console.error('Error syncing account:', error);
-      setError(error.response?.data?.message || 'Failed to sync account data');
+      // The API client throws errors, so we need to check the error structure
+      const errorMessage = error.message || 'Failed to sync account data';
+      setError(errorMessage);
+      console.error('Full error details:', {
+        error: error,
+        message: errorMessage,
+      });
     } finally {
       setSyncing(null);
     }
@@ -355,7 +514,9 @@ export default function AccountsPage() {
                             </h3>
                             {account.platform_username && (
                               <p className="text-sm text-white/70">
-                                @{account.platform_username}
+                                {account.platform_username.startsWith('@') 
+                                  ? account.platform_username 
+                                  : `@${account.platform_username}`}
                               </p>
                             )}
                           </div>
@@ -445,7 +606,9 @@ export default function AccountsPage() {
                           </div>
                           {account.platform_username && (
                             <p className="text-sm text-white/70 mb-4">
-                              @{account.platform_username}
+                              {account.platform_username.startsWith('@') 
+                                ? account.platform_username 
+                                : `@${account.platform_username}`}
                             </p>
                           )}
                           <button

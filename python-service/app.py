@@ -11,7 +11,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for Node.js backend
+# Enable CORS for Node.js backend - allow all origins in development
+CORS(app, resources={
+    r"/api/*": {"origins": "*"},
+    r"/health": {"origins": "*"}
+})
 
 # Import service modules
 from services import (
@@ -69,17 +73,21 @@ def entity_recognition():
 
 @app.route('/api/nlp/advanced-sentiment', methods=['POST'])
 def advanced_sentiment():
-    """Advanced sentiment analysis using ML models"""
+    """Advanced ML-based sentiment analysis with recommendations"""
     try:
         data = request.json
         text = data.get('text', '')
+        context = data.get('context', {})  # Optional context (platform, post_type, etc.)
         
         if not text:
             return jsonify({'error': 'Text is required'}), 400
         
-        result = nlp_service.advanced_sentiment_analysis(text)
+        result = nlp_service.advanced_sentiment_analysis(text, context)
         return jsonify({'success': True, 'data': result})
     except Exception as e:
+        import traceback
+        print(f"Error in advanced sentiment analysis: {e}")
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/nlp/text-classification', methods=['POST'])
@@ -279,5 +287,8 @@ def distribution_analysis():
 if __name__ == '__main__':
     port = int(os.getenv('PYTHON_SERVICE_PORT', 5000))
     debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    # Bind to localhost by default, but allow override via environment variable
+    host = os.getenv('PYTHON_SERVICE_HOST', '127.0.0.1')  # Use 127.0.0.1 instead of 0.0.0.0 for localhost
+    print(f"[Python Service] Starting on http://{host}:{port}")
+    app.run(host=host, port=port, debug=debug)
 

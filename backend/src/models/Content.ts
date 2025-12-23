@@ -14,6 +14,7 @@ export interface ContentDraft {
   status?: 'draft' | 'scheduled' | 'published' | 'archived';
   scheduled_at?: Date;
   published_at?: Date;
+  reminder_days_before?: number;
   created_at?: Date;
   updated_at?: Date;
   metadata?: Record<string, any>;
@@ -71,8 +72,8 @@ class ContentDraftModel {
     const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO content_drafts (
         user_id, title, content, content_type, media_urls, hashtags, mentions,
-        target_platforms, status, scheduled_at, published_at, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        target_platforms, status, scheduled_at, published_at, reminder_days_before, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         draft.user_id,
         draft.title || null,
@@ -85,6 +86,7 @@ class ContentDraftModel {
         draft.status || 'draft',
         draft.scheduled_at || null,
         draft.published_at || null,
+        draft.reminder_days_before || null,
         draft.metadata ? JSON.stringify(draft.metadata) : null,
       ]
     );
@@ -187,6 +189,7 @@ class ContentDraftModel {
       status: row.status,
       scheduled_at: row.scheduled_at,
       published_at: row.published_at,
+      reminder_days_before: row.reminder_days_before,
       created_at: row.created_at,
       updated_at: row.updated_at,
       metadata: row.metadata ? (typeof row.metadata === 'string' ? (() => {

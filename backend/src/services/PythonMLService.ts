@@ -3,8 +3,25 @@
  * Communicates with Python Flask service for advanced ML/NLP tasks
  */
 import axios, { AxiosInstance } from 'axios';
+import http from 'http';
+import https from 'https';
 
-const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:5000';
+// Use 127.0.0.1 instead of localhost to avoid IPv6 (::1) connection issues
+const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:5000';
+
+// Create HTTP agent that forces IPv4
+const httpAgent = new http.Agent({
+  family: 4, // Force IPv4
+  keepAlive: true,
+});
+
+const httpsAgent = new https.Agent({
+  family: 4, // Force IPv4
+  keepAlive: true,
+});
+
+// Log the Python service URL on initialization for debugging
+console.log(`[PythonMLService] Connecting to Python service at: ${PYTHON_SERVICE_URL}`);
 
 interface PythonServiceResponse<T> {
   success: boolean;
@@ -22,7 +39,32 @@ class PythonMLService {
       headers: {
         'Content-Type': 'application/json',
       },
+      // Force IPv4 by using custom HTTP agents
+      httpAgent: httpAgent,
+      httpsAgent: httpsAgent,
     });
+    
+    // Log connection details on initialization
+    console.log(`[PythonMLService] Initialized with baseURL: ${PYTHON_SERVICE_URL}`);
+    
+    // Test connection on startup (non-blocking, don't wait for it)
+    setTimeout(() => {
+      this.testConnection();
+    }, 2000); // Wait 2 seconds for Python service to be ready
+  }
+  
+  /**
+   * Test connection to Python service
+   */
+  private async testConnection(): Promise<void> {
+    try {
+      const response = await this.client.get('/health', { timeout: 5000 });
+      console.log(`[PythonMLService] ✓ Python service is reachable at ${PYTHON_SERVICE_URL}`);
+    } catch (error: any) {
+      console.warn(`[PythonMLService] ⚠ Python service health check failed (this is OK if Python service starts after backend)`);
+      console.warn(`[PythonMLService] Error: ${error.code || error.message}`);
+      console.warn(`[PythonMLService] Will retry on first actual request...`);
+    }
   }
 
   /**
@@ -30,10 +72,10 @@ class PythonMLService {
    */
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await this.client.get('/health');
+      const response = await this.client.get('/health', { timeout: 5000 });
       return response.status === 200;
-    } catch (error) {
-      console.error('Python service health check failed:', error);
+    } catch (error: any) {
+      console.warn('Python service health check failed:', error.message || error);
       return false;
     }
   }
@@ -85,16 +127,60 @@ class PythonMLService {
   }
 
   /**
-   * Advanced sentiment analysis
+   * Advanced sentiment analysis with optional context
    */
-  async advancedSentimentAnalysis(text: string): Promise<PythonServiceResponse<any>> {
+  async advancedSentimentAnalysis(
+    text: string,
+    context?: { platform?: string; post_type?: string; [key: string]: any }
+  ): Promise<PythonServiceResponse<any>> {
     try {
+      console.log(`[PythonMLService] Sending sentiment analysis request to: ${PYTHON_SERVICE_URL}/api/nlp/advanced-sentiment`);
+      
       const response = await this.client.post('/api/nlp/advanced-sentiment', {
         text,
+        context: context || {},
+      }, {
+        timeout: 30000, // 30 seconds timeout
       });
+      
+      console.log(`[PythonMLService] ✓ Sentiment analysis response received:`, response.status);
       return response.data;
     } catch (error: any) {
-      console.error('Advanced sentiment analysis error:', error);
+      // Check if it's a connection error (service not running)
+      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.message?.includes('connect') || error.message?.includes('ECONNREFUSED')) {
+        console.error('[PythonMLService] Connection error - Python service not accessible:', {
+          code: error.code,
+          message: error.message,
+          url: `${PYTHON_SERVICE_URL}/api/nlp/advanced-sentiment`,
+          stack: error.stack,
+        });
+        return {
+          success: false,
+          error: 'Python service is not available. Please start the Python service for advanced ML-based sentiment analysis.',
+        };
+      }
+      
+      // Check if it's an HTTP error (service running but endpoint failed)
+      if (error.response) {
+        console.error('[PythonMLService] HTTP error from Python service:', {
+          status: error.response.status,
+          data: error.response.data,
+          url: `${PYTHON_SERVICE_URL}/api/nlp/advanced-sentiment`,
+        });
+        return {
+          success: false,
+          error: error.response.data?.error || error.message || 'Sentiment analysis failed',
+        };
+      }
+      
+      console.error('[PythonMLService] Advanced sentiment analysis error:', error);
+      console.error('[PythonMLService] Error details:', {
+        code: error.code,
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        url: `${PYTHON_SERVICE_URL}/api/nlp/advanced-sentiment`,
+      });
       return {
         success: false,
         error: error.message || 'Sentiment analysis failed',

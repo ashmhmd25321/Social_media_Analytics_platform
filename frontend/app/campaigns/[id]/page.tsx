@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Target, TrendingUp, DollarSign, Eye, MousePointerClick, Heart, MessageCircle, Share2, Users, BarChart3, Play, Pause } from 'lucide-react';
 import Link from 'next/link';
@@ -54,14 +55,11 @@ export default function CampaignDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'metrics' | 'ab-test'>('overview');
 
-  useEffect(() => {
-    fetchCampaignData();
-  }, [campaignId]);
-
   const fetchCampaignData = async () => {
     try {
       setLoading(true);
-      const response = await api.get<{ data: CampaignMetrics }>(`/campaigns/${campaignId}`);
+      // DISABLE CACHE for fresh data
+      const response = await api.get<{ data: CampaignMetrics }>(`/campaigns/${campaignId}`, false);
       if (response.success && response.data) {
         setMetrics(response.data);
       }
@@ -71,6 +69,9 @@ export default function CampaignDetailsPage() {
       setLoading(false);
     }
   };
+
+  // Use the refresh hook to refetch data when page becomes visible or when navigating back
+  usePageRefresh(fetchCampaignData, [campaignId]);
 
   if (loading) {
     return (

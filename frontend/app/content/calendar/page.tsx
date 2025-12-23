@@ -30,7 +30,8 @@ export default function CalendarPage() {
   const fetchScheduledPosts = async () => {
     try {
       setLoading(true);
-      const response = await api.get<{ data: ScheduledPost[] }>('/content/scheduled');
+      // DISABLE CACHE for fresh data
+      const response = await api.get<{ data: ScheduledPost[] }>('/content/scheduled', false);
       if (response.success && response.data) {
         setScheduledPosts(Array.isArray(response.data) ? response.data : []);
       }

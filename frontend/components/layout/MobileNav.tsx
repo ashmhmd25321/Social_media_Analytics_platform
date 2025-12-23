@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -11,6 +11,17 @@ export default function MobileNav() {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
   const { user, logout } = useAuth();
+
+  // Listen for toggle events from TopNav
+  useEffect(() => {
+    const handleToggle = (event: CustomEvent) => {
+      setIsOpen(event.detail);
+    };
+    window.addEventListener('toggleMobileMenu', handleToggle as EventListener);
+    return () => {
+      window.removeEventListener('toggleMobileMenu', handleToggle as EventListener);
+    };
+  }, []);
 
   const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: Home },
@@ -25,10 +36,11 @@ export default function MobileNav() {
 
   return (
     <>
-      {/* Mobile Menu Button */}
+      {/* Mobile Menu Button - Hidden, using TopNav's button instead */}
+      {/* This button is kept for backward compatibility but hidden */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="lg:hidden fixed top-4 right-4 z-50 p-2 bg-white/10 backdrop-blur-sm rounded-lg text-white hover:bg-white/20 transition-colors"
+        className="hidden"
         aria-label="Toggle menu"
         aria-expanded={isOpen}
       >
@@ -43,7 +55,7 @@ export default function MobileNav() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 xl:hidden"
               onClick={() => setIsOpen(false)}
             />
             <motion.div
@@ -51,7 +63,7 @@ export default function MobileNav() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed top-0 right-0 h-full w-80 bg-gradient-to-br from-secondary-900 via-purple-900 to-primary-900 z-50 lg:hidden overflow-y-auto"
+              className="fixed top-0 right-0 h-full w-80 bg-gradient-to-br from-secondary-900 via-purple-900 to-primary-900 z-50 xl:hidden overflow-y-auto"
             >
               <div className="p-6">
                 <div className="flex items-center justify-between mb-8">
@@ -89,18 +101,25 @@ export default function MobileNav() {
 
                 <div className="mt-8 pt-8 border-t border-white/20">
                   <div className="px-4 py-2 text-white/60 text-sm mb-4">
-                    {user?.first_name} {user?.last_name}
+                    {user ? (
+                      <span>{user.first_name} {user.last_name}</span>
+                    ) : (
+                      <span>Guest</span>
+                    )}
                   </div>
-                  <button
-                    onClick={() => {
-                      setIsOpen(false);
-                      logout();
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-300 hover:bg-red-500/20 transition-colors"
-                  >
-                    <LogOut className="w-5 h-5" />
-                    <span className="font-medium">Logout</span>
-                  </button>
+                  {/* Only show logout button if user is logged in */}
+                  {user && (
+                    <button
+                      onClick={() => {
+                        setIsOpen(false);
+                        logout();
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-300 hover:bg-red-500/20 transition-colors"
+                    >
+                      <LogOut className="w-5 h-5" />
+                      <span className="font-medium">Logout</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </motion.div>

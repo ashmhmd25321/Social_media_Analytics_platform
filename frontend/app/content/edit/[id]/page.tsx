@@ -48,7 +48,8 @@ export default function EditDraftPage() {
   const fetchDraft = async () => {
     try {
       setLoading(true);
-      const response = await api.get<{ data: Draft }>(`/content/drafts/${draftId}`);
+      // Use cache with short TTL (10 seconds) for draft data
+      const response = await api.get<{ data: Draft }>(`/content/drafts/${draftId}`, true, 10 * 1000);
       if (response.success && response.data) {
         const draftData = response.data;
         setDraft(draftData);
@@ -66,7 +67,8 @@ export default function EditDraftPage() {
 
   const fetchAccounts = async () => {
     try {
-      const response = await api.get<{ data: ConnectedAccount[] }>('/social/accounts');
+      // Use cache with short TTL (30 seconds) to reduce requests
+      const response = await api.get<{ data: ConnectedAccount[] }>('/social/accounts', true, 30 * 1000);
       if (response.success && response.data) {
         setAccounts(Array.isArray(response.data) ? response.data : []);
       }
@@ -89,6 +91,13 @@ export default function EditDraftPage() {
       if (response.success) {
         setMessage({ type: 'success', text: 'Draft updated successfully!' });
         setTimeout(() => {
+          // Clear cache for drafts endpoint
+          const { apiCache } = require('@/lib/cache');
+          apiCache.delete(apiCache.generateKey('/content/drafts'));
+          // Set refresh flag for content library page
+          sessionStorage.setItem('refresh_content_library', 'true');
+          // Dispatch custom event
+          window.dispatchEvent(new CustomEvent('refreshContentLibrary'));
           router.push('/content/library');
         }, 1500);
       } else {

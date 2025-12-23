@@ -52,7 +52,7 @@ export default function MetricCard({
                   trend.isPositive ? 'text-green-400' : 'text-red-400'
                 }`}
               >
-                {trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value).toFixed(1)}%
+                {trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value || 0).toFixed(1)}%
               </span>
               <span className="text-white/60 text-xs">vs last period</span>
             </div>

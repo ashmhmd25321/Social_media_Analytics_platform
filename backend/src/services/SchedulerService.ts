@@ -6,6 +6,7 @@ import { dataCollectionJobModel } from '../models/DataCollection';
 import { postPublishingService } from './PostPublishingService';
 import { alertService } from './AlertService';
 import { scheduledReportService } from './ScheduledReportService';
+import { notificationService } from './NotificationService';
 import { pool } from '../config/database';
 
 interface ScheduledJob {
@@ -44,6 +45,9 @@ class SchedulerService {
 
     // Schedule report generation (every hour)
     this.scheduleReportGeneration();
+
+    // Schedule reminder checking (every hour)
+    this.scheduleReminderChecking();
   }
 
   /**
@@ -172,6 +176,22 @@ class SchedulerService {
       }
     });
     console.log('✅ Scheduled report generation scheduled (every hour)');
+  }
+
+  /**
+   * Schedule reminder checking (runs every hour)
+   */
+  private scheduleReminderChecking(): void {
+    cron.schedule('0 * * * *', async () => {
+      try {
+        console.log('🔔 Checking for upcoming reminders');
+        await notificationService.checkAllReminders();
+        console.log('✅ Reminder check completed');
+      } catch (error) {
+        console.error('Error in reminder checking:', error);
+      }
+    });
+    console.log('✅ Reminder checking scheduled (every hour)');
   }
 
   /**

@@ -12,6 +12,7 @@ export interface Campaign {
   end_date?: Date;
   budget?: number;
   status: 'draft' | 'active' | 'paused' | 'completed' | 'cancelled';
+  reminder_days_before?: number;
   goals?: Record<string, any>;
   created_at?: Date;
   updated_at?: Date;
@@ -60,8 +61,8 @@ export interface ABTestGroup {
 class CampaignModel {
   async create(campaign: Campaign): Promise<number> {
     const [result] = await pool.execute<ResultSetHeader>(
-      `INSERT INTO campaigns (team_id, user_id, name, description, campaign_type, start_date, end_date, budget, status, goals)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO campaigns (team_id, user_id, name, description, campaign_type, start_date, end_date, budget, status, reminder_days_before, goals)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         campaign.team_id || null,
         campaign.user_id,
@@ -72,6 +73,7 @@ class CampaignModel {
         campaign.end_date || null,
         campaign.budget || null,
         campaign.status || 'draft',
+        campaign.reminder_days_before || null,
         campaign.goals ? JSON.stringify(campaign.goals) : null,
       ]
     );
@@ -155,6 +157,10 @@ class CampaignModel {
       fields.push('status = ?');
       values.push(updates.status);
     }
+    if (updates.reminder_days_before !== undefined) {
+      fields.push('reminder_days_before = ?');
+      values.push(updates.reminder_days_before);
+    }
     if (updates.goals !== undefined) {
       fields.push('goals = ?');
       values.push(JSON.stringify(updates.goals));
@@ -190,6 +196,7 @@ class CampaignModel {
       end_date: row.end_date,
       budget: row.budget ? parseFloat(row.budget) : undefined,
       status: row.status,
+      reminder_days_before: row.reminder_days_before,
       goals: row.goals ? (typeof row.goals === 'string' ? JSON.parse(row.goals) : row.goals) : undefined,
       created_at: row.created_at,
       updated_at: row.updated_at,

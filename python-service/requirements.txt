@@ -7,6 +7,13 @@ scikit-learn==1.4.0
 # NLP Libraries
 nltk==3.8.1
 spacy==3.7.2
+textblob==0.17.1
+
+# Advanced ML - Transformers and Deep Learning
+transformers==4.36.2
+torch==2.1.2
+sentencepiece==0.1.99
+accelerate==0.25.0
 
 # Machine Learning
 scipy==1.12.0

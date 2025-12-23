@@ -49,7 +49,22 @@ export default function LineChart({
             stroke="rgba(255,255,255,0.7)"
             style={{ fontSize: '12px' }}
             tickFormatter={(value) => {
+              // Handle both date strings (YYYY-MM-DD) and already formatted strings
+              if (!value) return '';
+              
+              // If it's already a formatted string (like "Dec 20"), return as-is
+              if (typeof value === 'string' && !value.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                return value;
+              }
+              
+              // Parse date string (YYYY-MM-DD format)
               const date = new Date(value);
+              
+              // Validate date is valid
+              if (isNaN(date.getTime())) {
+                return value; // Return original if parsing fails
+              }
+              
               return `${date.getMonth() + 1}/${date.getDate()}`;
             }}
           />

@@ -212,19 +212,22 @@ CREATE TABLE IF NOT EXISTS engagement_snapshots (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Follower/Audience data table
+-- Note: This table stores historical follower data - each sync creates a new record
 CREATE TABLE IF NOT EXISTS follower_metrics (
     id INT PRIMARY KEY AUTO_INCREMENT,
     account_id INT NOT NULL,
     follower_count INT DEFAULT 0,
     following_count INT DEFAULT 0,
     posts_count INT DEFAULT 0,
-    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (account_id) REFERENCES user_social_accounts(id) ON DELETE CASCADE,
     INDEX idx_account_id (account_id),
-    INDEX idx_recorded_at (recorded_at)
+    INDEX idx_recorded_at (recorded_at),
+    INDEX idx_account_recorded (account_id, recorded_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Historical follower snapshots
+-- Note: This table stores daily snapshots for trend analysis
 CREATE TABLE IF NOT EXISTS follower_snapshots (
     id INT PRIMARY KEY AUTO_INCREMENT,
     account_id INT NOT NULL,
@@ -232,12 +235,14 @@ CREATE TABLE IF NOT EXISTS follower_snapshots (
     following_count INT DEFAULT 0,
     posts_count INT DEFAULT 0,
     snapshot_date DATE NOT NULL,
-    snapshot_time TIME NOT NULL,
+    snapshot_time TIME NOT NULL DEFAULT CURRENT_TIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (account_id) REFERENCES user_social_accounts(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_account_snapshot (account_id, snapshot_date, snapshot_time),
     INDEX idx_account_id (account_id),
     INDEX idx_snapshot_date (snapshot_date),
-    INDEX idx_snapshot_datetime (snapshot_date, snapshot_time)
+    INDEX idx_snapshot_datetime (snapshot_date, snapshot_time),
+    INDEX idx_account_date (account_id, snapshot_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Data collection jobs/logs table
@@ -378,6 +383,7 @@ CREATE TABLE IF NOT EXISTS content_drafts (
     status ENUM('draft', 'scheduled', 'published', 'archived') DEFAULT 'draft',
     scheduled_at TIMESTAMP NULL,
     published_at TIMESTAMP NULL,
+    reminder_days_before INT DEFAULT 1 COMMENT 'Number of days before scheduled_at to send reminder',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     metadata JSON,
@@ -743,6 +749,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   end_date DATE NULL,
   budget DECIMAL(10, 2) NULL,
   status ENUM('draft', 'active', 'paused', 'completed', 'cancelled') DEFAULT 'draft',
+  reminder_days_before INT DEFAULT 1 COMMENT 'Number of days before start_date to send reminder',
   goals JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -886,8 +893,9 @@ CREATE TABLE IF NOT EXISTS predictive_analytics (
 
 -- Analytics queries optimization
 -- Note: If indexes already exist, these will fail. You can safely ignore those errors.
-ALTER TABLE follower_metrics ADD INDEX idx_account_recorded (account_id, recorded_at);
-ALTER TABLE follower_snapshots ADD INDEX idx_account_date (account_id, snapshot_date);
+-- These indexes are now created in the table definitions above, but kept here for backward compatibility
+-- ALTER TABLE follower_metrics ADD INDEX idx_account_recorded (account_id, recorded_at);
+-- ALTER TABLE follower_snapshots ADD INDEX idx_account_date (account_id, snapshot_date);
 ALTER TABLE post_engagement_metrics ADD INDEX idx_post_engagement (post_id, recorded_at);
 ALTER TABLE engagement_snapshots ADD INDEX idx_post_date (post_id, snapshot_date);
 
@@ -916,9 +924,111 @@ ALTER TABLE social_posts ADD INDEX idx_user_platform_created (user_id, platform_
 ALTER TABLE post_engagement_metrics ADD INDEX idx_post_recorded (post_id, recorded_at DESC);
 
 -- =====================================================
+-- PHASE 9: Reminders & Notifications
+-- =====================================================
+
+-- Notifications table for reminders and alerts
+CREATE TABLE IF NOT EXISTS notifications (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    type ENUM('content_reminder', 'campaign_reminder', 'content_due', 'campaign_start', 'campaign_end', 'system') DEFAULT 'system',
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    entity_type ENUM('content', 'campaign') NULL,
+    entity_id INT NULL COMMENT 'ID of the content draft or campaign',
+    is_read BOOLEAN DEFAULT FALSE,
+    reminder_date DATE NULL COMMENT 'Date when the reminder should be shown',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    read_at TIMESTAMP NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_id (user_id),
+    INDEX idx_type (type),
+    INDEX idx_is_read (is_read),
+    INDEX idx_reminder_date (reminder_date),
+    INDEX idx_entity (entity_type, entity_id),
+    INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =====================================================
+-- Data Integrity Constraints & Triggers
+-- =====================================================
+
+-- Drop triggers if they exist (for clean reinstall)
+DROP TRIGGER IF EXISTS trg_follower_metrics_before_insert;
+DROP TRIGGER IF EXISTS trg_follower_metrics_before_update;
+DROP TRIGGER IF EXISTS trg_follower_snapshots_before_insert;
+DROP TRIGGER IF EXISTS trg_follower_snapshots_before_update;
+
+-- Ensure recorded_at in follower_metrics is always valid (not before 2020)
+-- This prevents corrupted dates like 2001
+DELIMITER //
+CREATE TRIGGER trg_follower_metrics_before_insert
+BEFORE INSERT ON follower_metrics
+FOR EACH ROW
+BEGIN
+    -- Ensure recorded_at is not NULL and is a valid recent date
+    IF NEW.recorded_at IS NULL OR NEW.recorded_at < '2020-01-01' THEN
+        SET NEW.recorded_at = CURRENT_TIMESTAMP;
+    END IF;
+END//
+DELIMITER ;
+
+-- Ensure recorded_at in follower_metrics is always valid on update
+DELIMITER //
+CREATE TRIGGER trg_follower_metrics_before_update
+BEFORE UPDATE ON follower_metrics
+FOR EACH ROW
+BEGIN
+    -- Ensure recorded_at is not NULL and is a valid recent date
+    IF NEW.recorded_at IS NULL OR NEW.recorded_at < '2020-01-01' THEN
+        SET NEW.recorded_at = CURRENT_TIMESTAMP;
+    END IF;
+END//
+DELIMITER ;
+
+-- Ensure snapshot_date in follower_snapshots is always valid
+DELIMITER //
+CREATE TRIGGER trg_follower_snapshots_before_insert
+BEFORE INSERT ON follower_snapshots
+FOR EACH ROW
+BEGIN
+    -- Ensure snapshot_date is not NULL and is a valid recent date
+    IF NEW.snapshot_date IS NULL OR NEW.snapshot_date < '2020-01-01' THEN
+        SET NEW.snapshot_date = CURDATE();
+    END IF;
+    -- Ensure snapshot_time is not NULL
+    IF NEW.snapshot_time IS NULL THEN
+        SET NEW.snapshot_time = CURRENT_TIME;
+    END IF;
+END//
+DELIMITER ;
+
+-- Ensure snapshot_date in follower_snapshots is always valid on update
+DELIMITER //
+CREATE TRIGGER trg_follower_snapshots_before_update
+BEFORE UPDATE ON follower_snapshots
+FOR EACH ROW
+BEGIN
+    -- Ensure snapshot_date is not NULL and is a valid recent date
+    IF NEW.snapshot_date IS NULL OR NEW.snapshot_date < '2020-01-01' THEN
+        SET NEW.snapshot_date = CURDATE();
+    END IF;
+    -- Ensure snapshot_time is not NULL
+    IF NEW.snapshot_time IS NULL THEN
+        SET NEW.snapshot_time = CURRENT_TIME;
+    END IF;
+END//
+DELIMITER ;
+
+-- =====================================================
 -- Script Complete
 -- =====================================================
 -- All tables and indexes have been created successfully!
 -- The database is ready for use.
+-- 
+-- IMPORTANT NOTES:
+-- 1. The triggers above ensure that dates are always valid (not before 2020)
+-- 2. If you see dates like 2001, it means there's corrupted data that needs cleanup
+-- 3. After recreating the database, sync your accounts to populate fresh data
 -- =====================================================
 

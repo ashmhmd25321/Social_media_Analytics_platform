@@ -13,6 +13,7 @@ import alertRoutes from './routes/alertRoutes';
 import nlpRoutes from './routes/nlpRoutes';
 import teamRoutes from './routes/teamRoutes';
 import campaignRoutes from './routes/campaignRoutes';
+import notificationRoutes from './routes/notificationRoutes';
 import { testConnection } from './config/database';
 import { connectRedis } from './config/redis';
 import { rateLimiter } from './middleware/rateLimiter';
@@ -62,6 +63,7 @@ app.use('/api/alerts', alertRoutes);
 app.use('/api/nlp', nlpRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/campaigns', campaignRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Start server
 app.listen(PORT, async () => {

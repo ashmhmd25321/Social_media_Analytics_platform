@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
@@ -20,25 +20,12 @@ interface ScheduledPost {
 
 export default function ScheduledPostsPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const { user } = useAuth();
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
-
-  useEffect(() => {
-    fetchScheduledPosts();
-  }, [filter]);
-
-  // Refresh posts when page becomes visible
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchScheduledPosts();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const fetchScheduledPosts = async () => {
     try {
@@ -48,7 +35,8 @@ export default function ScheduledPostsPage() {
       const url = status && status.trim() !== '' 
         ? `/content/scheduled?status=${status}` 
         : '/content/scheduled';
-      const response = await api.get<{ data: ScheduledPost[] }>(url);
+      // DISABLE CACHE to ensure fresh data
+      const response = await api.get<{ data: ScheduledPost[] }>(url, false);
       if (response.success && response.data) {
         setPosts(Array.isArray(response.data) ? response.data : []);
       } else {
@@ -62,6 +50,43 @@ export default function ScheduledPostsPage() {
       setLoading(false);
     }
   };
+
+  // Fetch data on mount and when filter/refreshKey changes
+  useEffect(() => {
+    fetchScheduledPosts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, refreshKey]);
+
+  // Refresh when navigating to this page (check for refresh flag)
+  useEffect(() => {
+    const checkRefresh = () => {
+      const refreshFlag = sessionStorage.getItem('refresh_content_scheduled');
+      if (refreshFlag === 'true') {
+        sessionStorage.removeItem('refresh_content_scheduled');
+        // Force refresh by updating refreshKey
+        setRefreshKey(prev => prev + 1);
+        // Also call router.refresh() for Next.js cache invalidation
+        router.refresh();
+      }
+    };
+
+    // Check immediately
+    checkRefresh();
+
+    // Also check after a short delay (in case navigation just completed)
+    const timer = setTimeout(checkRefresh, 300);
+    return () => clearTimeout(timer);
+  }, [pathname, router]);
+
+  // Listen for custom refresh events
+  useEffect(() => {
+    const handleRefresh = () => {
+      setRefreshKey(prev => prev + 1);
+      router.refresh();
+    };
+    window.addEventListener('refreshContentScheduled', handleRefresh);
+    return () => window.removeEventListener('refreshContentScheduled', handleRefresh);
+  }, [router]);
 
   const handleCancel = async (id: number) => {
     if (!confirm('Are you sure you want to cancel this scheduled post?')) return;

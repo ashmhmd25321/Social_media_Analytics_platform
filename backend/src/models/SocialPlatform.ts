@@ -111,7 +111,9 @@ class UserSocialAccountModel {
       `SELECT usa.*, sp.name as platform_name, sp.display_name as platform_display_name, sp.icon_url as platform_icon
        FROM user_social_accounts usa
        JOIN social_platforms sp ON usa.platform_id = sp.id
-       WHERE usa.user_id = ? AND usa.is_active = TRUE
+       WHERE usa.user_id = ? 
+         AND usa.is_active = TRUE 
+         AND usa.account_status = 'connected'
        ORDER BY usa.created_at DESC`,
       [userId]
     );
@@ -138,9 +140,10 @@ class UserSocialAccountModel {
       .map((key) => `${key} = ?`)
       .join(', ');
     
+    // Convert undefined to null for MySQL compatibility
     let values: any[] = Object.entries(updates)
       .filter(([key]) => key !== 'id' && key !== 'metadata')
-      .map(([, value]) => value);
+      .map(([, value]) => value === undefined ? null : value);
 
     if (updates.metadata !== undefined) {
       if (fields) {
@@ -148,7 +151,7 @@ class UserSocialAccountModel {
       } else {
         fields = 'metadata = ?';
       }
-      values.push(JSON.stringify(updates.metadata));
+      values.push(updates.metadata ? JSON.stringify(updates.metadata) : null);
     }
 
     if (!fields) {

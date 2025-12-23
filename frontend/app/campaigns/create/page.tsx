@@ -46,7 +46,19 @@ export default function CreateCampaignPage() {
         status: 'draft',
       });
       if (response.success) {
-        router.push(`/campaigns/${response.data.id}`);
+        // Clear cache for campaigns endpoint
+        const { apiCache } = require('@/lib/cache');
+        apiCache.delete(apiCache.generateKey('/campaigns'));
+        // Set refresh flag for campaigns page
+        sessionStorage.setItem('refresh_campaigns', 'true');
+        // Dispatch custom event
+        window.dispatchEvent(new CustomEvent('refreshCampaigns'));
+        const campaignId = (response.data as any)?.id;
+        if (campaignId) {
+          router.push(`/campaigns/${campaignId}`);
+        } else {
+          router.push('/campaigns');
+        }
       }
     } catch (error) {
       console.error('Error creating campaign:', error);

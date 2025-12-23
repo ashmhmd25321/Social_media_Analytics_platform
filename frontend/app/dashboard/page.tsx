@@ -26,6 +26,7 @@ import {
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { MetricCard, LineChart, BarChart } from '@/components/analytics';
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 
 interface OverviewMetrics {
   totalFollowers: number;
@@ -68,43 +69,44 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<number>(30);
 
-  useEffect(() => {
-    fetchAnalytics();
-  }, [timeRange]);
-
   const fetchAnalytics = async () => {
     try {
       setLoading(true);
       
-      // Fetch overview metrics
-      const overviewResponse = await api.get<{ data: OverviewMetrics }>('/analytics/overview');
+      // Fetch overview metrics - DISABLE CACHE for fresh data
+      const overviewResponse = await api.get<OverviewMetrics>('/analytics/overview', false);
       if (overviewResponse.success && overviewResponse.data) {
         setOverview(overviewResponse.data);
       }
 
-      // Fetch follower trends
-      const followerResponse = await api.get<{ data: FollowerTrend[] }>(`/analytics/followers/trends?days=${timeRange}`);
+      // Fetch follower trends - DISABLE CACHE for fresh data
+      const followerResponse = await api.get<FollowerTrend[]>(`/analytics/followers/trends?days=${timeRange}`, false);
       if (followerResponse.success && followerResponse.data) {
-        setFollowerTrends(followerResponse.data);
+        setFollowerTrends(Array.isArray(followerResponse.data) ? followerResponse.data : []);
       }
 
-      // Fetch engagement trends
-      const engagementResponse = await api.get<{ data: EngagementTrend[] }>(`/analytics/engagement/trends?days=${timeRange}`);
+      // Fetch engagement trends - DISABLE CACHE for fresh data
+      const engagementResponse = await api.get<EngagementTrend[]>(`/analytics/engagement/trends?days=${timeRange}`, false);
       if (engagementResponse.success && engagementResponse.data) {
-        setEngagementTrends(engagementResponse.data);
+        setEngagementTrends(Array.isArray(engagementResponse.data) ? engagementResponse.data : []);
       }
 
-      // Fetch platform comparison
-      const platformResponse = await api.get<{ data: PlatformComparison[] }>('/analytics/platforms/comparison');
+      // Fetch platform comparison - DISABLE CACHE for fresh data
+      const platformResponse = await api.get<PlatformComparison[]>('/analytics/platforms/comparison', false);
       if (platformResponse.success && platformResponse.data) {
-        setPlatformComparison(platformResponse.data);
+        setPlatformComparison(Array.isArray(platformResponse.data) ? platformResponse.data : []);
       }
     } catch (error) {
       console.error('Error fetching analytics:', error);
+      // Don't throw - just log the error and continue
+      // This prevents the error from bubbling up and breaking the page
     } finally {
       setLoading(false);
     }
   };
+
+  // Use the refresh hook to refetch data when page becomes visible or when navigating back
+  usePageRefresh(fetchAnalytics, [timeRange]);
 
   const dashboardCards = [
     {
@@ -216,19 +218,23 @@ export default function DashboardPage() {
                     <Settings className="w-4 h-4" />
                     Settings
                   </button>
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/10 backdrop-blur-sm">
-                    <User className="w-4 h-4 text-white/80" />
-                    <span className="text-sm text-white font-medium">
-                      {user?.first_name} {user?.last_name}
-                    </span>
-                  </div>
-                  <button
-                    onClick={logout}
-                    className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 rounded-lg transition-all shadow-lg flex items-center gap-2"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    Logout
-                  </button>
+                  {user && (
+                    <>
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/10 backdrop-blur-sm">
+                        <User className="w-4 h-4 text-white/80" />
+                        <span className="text-sm text-white font-medium">
+                          {user.first_name} {user.last_name}
+                        </span>
+                      </div>
+                      <button
+                        onClick={logout}
+                        className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 rounded-lg transition-all shadow-lg flex items-center gap-2"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Logout
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -346,7 +352,7 @@ export default function DashboardPage() {
                     }))}
                     dataKey="followers"
                     title="Follower Growth"
-                    color="#8b5cf6"
+                    color="#06b6d4"
                     delay={0.5}
                   />
                 )}
@@ -426,6 +432,17 @@ export default function DashboardPage() {
                             <h3 className="mb-3 text-lg font-semibold text-white">
                               YouTube Overview
                             </h3>
+                            {youtube.followers === 0 && youtube.posts === 0 && youtube.engagement === 0 && (
+                              <div className="mb-4 bg-yellow-500/20 backdrop-blur-xl border border-yellow-400/30 rounded-xl p-4">
+                                <p className="text-yellow-200 text-sm">
+                                  <strong>No data yet:</strong> Your YouTube account is connected, but data hasn't been synced. Go to{' '}
+                                  <Link href="/settings/accounts" className="underline hover:text-yellow-100">
+                                    Settings → Accounts
+                                  </Link>{' '}
+                                  and click the "Sync" button to collect your YouTube data.
+                                </p>
+                              </div>
+                            )}
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                               <MetricCard
                                 title="YouTube Subscribers"

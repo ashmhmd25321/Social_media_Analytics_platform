@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { generateStateToken, getOAuthConfig } from '../config/oauth-config';
 import SocialAccountModel, { OAuthStateModelInstance } from '../models/SocialPlatform';
 import { AuthRequest } from '../middleware/auth';
+import { dataCollectionService } from '../services/DataCollectionService';
 
 type AuthenticatedRequest = AuthRequest;
 
@@ -108,6 +109,12 @@ export const initiateOAuth = async (req: AuthenticatedRequest, res: Response) =>
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('scope', oauthConfig.scopes.join(' '));
     authUrl.searchParams.set('state', stateToken);
+    
+    // For Google OAuth (YouTube), force account selection to avoid auto-login issues
+    if (platformName.toLowerCase() === 'youtube') {
+      authUrl.searchParams.set('prompt', 'select_account');
+      authUrl.searchParams.set('access_type', 'offline'); // Request refresh token
+    }
 
     const finalAuthUrl = authUrl.toString();
     console.log(`[DEBUG] Generated OAuth URL: ${finalAuthUrl.substring(0, 100)}...`);
@@ -358,6 +365,13 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
             platformDisplayName = channel.snippet?.title || '';
             platformUsername = channel.snippet?.customUrl || channel.snippet?.title || '';
             profilePictureUrl = channel.snippet?.thumbnails?.default?.url || '';
+            console.log('[YouTube OAuth] Channel connected:', {
+              channelId: platformAccountId,
+              displayName: platformDisplayName,
+              username: platformUsername,
+            });
+          } else {
+            console.warn('[YouTube OAuth] No channel items found in API response');
           }
         }
       } catch (err) {
@@ -391,12 +405,28 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
     }
 
     // Save or update account connection
-    const existingAccount = await SocialAccountModel.account.findByUserIdAndPlatform(
+    // First, try to find any existing account (including inactive ones or those with temp_id)
+    let existingAccount = await SocialAccountModel.account.findByUserIdAndPlatform(
       stateRecord.user_id,
       platform.id!
     );
 
+    // If not found, check for accounts with temp_id (might be inactive)
+    if (!existingAccount) {
+      const { pool } = await import('../config/database');
+      const [rows] = await pool.execute<any[]>(
+        `SELECT usa.* FROM user_social_accounts usa
+         WHERE usa.user_id = ? AND usa.platform_id = ? AND usa.platform_account_id = 'temp_id'
+         LIMIT 1`,
+        [stateRecord.user_id, platform.id!]
+      );
+      if (rows.length > 0) {
+        existingAccount = rows[0] as any;
+      }
+    }
+
     if (existingAccount) {
+      // Update existing account - model will convert undefined to null
       await SocialAccountModel.account.update(existingAccount.id!, {
         platform_account_id: platformAccountId,
         platform_username: platformUsername || undefined,
@@ -411,24 +441,87 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
         is_active: true,
       });
     } else {
-      await SocialAccountModel.account.create({
-        user_id: stateRecord.user_id,
-        platform_id: platform.id!,
-        platform_account_id: platformAccountId,
-        platform_username: platformUsername || undefined,
-        platform_display_name: platformDisplayName || undefined,
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token || undefined,
-        token_expires_at: tokenData.expires_in
-          ? new Date(Date.now() + tokenData.expires_in * 1000)
-          : undefined,
-        profile_picture_url: profilePictureUrl || undefined,
-        account_status: 'connected',
-      });
+      // Try to create new account, but handle duplicate key errors
+      try {
+        await SocialAccountModel.account.create({
+          user_id: stateRecord.user_id,
+          platform_id: platform.id!,
+          platform_account_id: platformAccountId,
+          platform_username: platformUsername || undefined,
+          platform_display_name: platformDisplayName || undefined,
+          access_token: tokenData.access_token,
+          refresh_token: tokenData.refresh_token || undefined,
+          token_expires_at: tokenData.expires_in
+            ? new Date(Date.now() + tokenData.expires_in * 1000)
+            : undefined,
+          profile_picture_url: profilePictureUrl || undefined,
+          account_status: 'connected',
+        });
+      } catch (createError: any) {
+        // If duplicate key error, find and update the existing account
+        if (createError.code === 'ER_DUP_ENTRY' || createError.errno === 1062) {
+          console.log('Duplicate account detected, updating existing account instead');
+          // Find the account that caused the duplicate
+          const { pool } = await import('../config/database');
+          const [rows] = await pool.execute<any[]>(
+            `SELECT * FROM user_social_accounts 
+             WHERE user_id = ? AND platform_id = ? AND platform_account_id = ?
+             LIMIT 1`,
+            [stateRecord.user_id, platform.id!, platformAccountId]
+          );
+          
+          if (rows.length > 0) {
+            const duplicateAccount = rows[0];
+            await SocialAccountModel.account.update(duplicateAccount.id, {
+              platform_account_id: platformAccountId,
+              platform_username: platformUsername || undefined,
+              platform_display_name: platformDisplayName || undefined,
+              access_token: tokenData.access_token,
+              refresh_token: tokenData.refresh_token || undefined,
+              token_expires_at: tokenData.expires_in
+                ? new Date(Date.now() + tokenData.expires_in * 1000)
+                : undefined,
+              profile_picture_url: profilePictureUrl || undefined,
+              account_status: 'connected',
+              is_active: true,
+            });
+          } else {
+            throw createError; // Re-throw if we can't find the duplicate
+          }
+        } else {
+          throw createError; // Re-throw if it's not a duplicate key error
+        }
+      }
     }
 
     // Clean up state token
     await OAuthStateModelInstance.delete(state as string);
+
+    // Get the account that was just created/updated to trigger initial data sync
+    const connectedAccount = await SocialAccountModel.account.findByUserIdAndPlatform(
+      stateRecord.user_id,
+      platform.id!
+    );
+
+    // Clear backend cache for this user to ensure fresh data on next request
+    // This is critical - without this, analytics will show stale "no data" state
+    const { clearUserCache } = await import('../middleware/cache');
+    clearUserCache(stateRecord.user_id);
+    console.log(`[DEBUG] Account connected for user ${stateRecord.user_id}. Cache cleared.`);
+
+    // Trigger initial data sync in the background (don't wait for it)
+    if (connectedAccount && connectedAccount.id) {
+      dataCollectionService.collectAccountData(connectedAccount, { limit: 25 })
+        .then(() => {
+          console.log(`✅ Initial data sync completed for ${platformName} account ${connectedAccount.id}`);
+          // Clear cache again after data sync completes to ensure fresh analytics
+          clearUserCache(stateRecord.user_id);
+        })
+        .catch((error) => {
+          console.error(`❌ Initial data sync failed for ${platformName} account ${connectedAccount.id}:`, error);
+          // Don't fail the connection if sync fails - user can manually sync later
+        });
+    }
 
     // Redirect to frontend success page
     res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/settings/accounts?success=true&platform=${platformName}`);
@@ -482,14 +575,32 @@ export const disconnectAccount = async (req: AuthenticatedRequest, res: Response
     }
 
     const { accountId } = req.params;
-    const deleted = await SocialAccountModel.account.delete(parseInt(accountId));
-
-    if (!deleted) {
+    
+    // Verify the account belongs to the user before disconnecting
+    const account = await SocialAccountModel.account.findById(parseInt(accountId));
+    if (!account || account.user_id !== userId) {
       return res.status(404).json({
         success: false,
         message: 'Account not found',
       });
     }
+
+    // Disconnect the account (sets is_active = FALSE and account_status = 'disconnected')
+    const deleted = await SocialAccountModel.account.delete(parseInt(accountId));
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'Account not found or already disconnected',
+      });
+    }
+
+    // Clear backend cache for this user to ensure fresh data on next request
+    // This is critical - without this, analytics will show stale data for 5 minutes
+    const { clearUserCache } = await import('../middleware/cache');
+    clearUserCache(userId);
+
+    console.log(`[DEBUG] Account ${accountId} disconnected for user ${userId}. Cache cleared.`);
 
     res.status(200).json({
       success: true,

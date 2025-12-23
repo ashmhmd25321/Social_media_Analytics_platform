@@ -36,7 +36,8 @@ export default function ReportsPage() {
     try {
       setLoading(true);
       const status = filter === 'all' ? undefined : filter;
-      const response = await api.get<{ data: Report[] }>(`/reports?status=${status || ''}`);
+      // DISABLE CACHE for fresh data
+      const response = await api.get<{ data: Report[] }>(`/reports?status=${status || ''}`, false);
       if (response.success && response.data) {
         setReports(Array.isArray(response.data) ? response.data : []);
       }

@@ -56,7 +56,8 @@ export default function CreateReportPage() {
 
   const fetchTemplates = async () => {
     try {
-      const response = await api.get<{ data: ReportTemplate[] }>('/reports/templates');
+      // DISABLE CACHE for fresh data
+      const response = await api.get<{ data: ReportTemplate[] }>('/reports/templates', false);
       if (response.success && response.data) {
         setTemplates(Array.isArray(response.data) ? response.data : []);
       }

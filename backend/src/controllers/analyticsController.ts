@@ -78,7 +78,7 @@ export class AnalyticsController {
 
   /**
    * Get top performing posts
-   * GET /api/analytics/posts/top?limit=10
+   * GET /api/analytics/posts/top?limit=10&days=30
    */
   async getTopPosts(req: Request, res: Response): Promise<void> {
     try {
@@ -89,7 +89,8 @@ export class AnalyticsController {
       }
 
       const limit = parseInt(req.query.limit as string) || 10;
-      const posts = await analyticsService.getTopPosts(userId, limit);
+      const days = req.query.days ? parseInt(req.query.days as string) : undefined;
+      const posts = await analyticsService.getTopPosts(userId, limit, days);
       res.json({ success: true, data: posts });
     } catch (error) {
       console.error('Error fetching top posts:', error);
@@ -127,7 +128,7 @@ export class AnalyticsController {
 
   /**
    * Get audience analytics
-   * GET /api/analytics/audience
+   * GET /api/analytics/audience?days=30
    */
   async getAudienceMetrics(req: Request, res: Response): Promise<void> {
     try {
@@ -137,7 +138,8 @@ export class AnalyticsController {
         return;
       }
 
-      const metrics = await analyticsService.getAudienceMetrics(userId);
+      const days = parseInt(req.query.days as string) || 30;
+      const metrics = await analyticsService.getAudienceMetrics(userId, days);
       res.json({ success: true, data: metrics });
     } catch (error) {
       console.error('Error fetching audience metrics:', error);
@@ -168,6 +170,31 @@ export class AnalyticsController {
       res.status(500).json({
         success: false,
         message: 'Failed to fetch content type breakdown',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * Get content performance metrics
+   * GET /api/analytics/content/performance?days=30
+   */
+  async getContentPerformance(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const days = parseInt(req.query.days as string) || 30;
+      const performance = await analyticsService.getContentPerformance(userId, days);
+      res.json({ success: true, data: performance });
+    } catch (error) {
+      console.error('Error fetching content performance:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch content performance',
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }

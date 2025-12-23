@@ -1,4 +1,5 @@
 import { UserSocialAccount } from '../models/SocialPlatform';
+import SocialAccountModel from '../models/SocialPlatform';
 import { SocialPost, PostEngagementMetrics, FollowerMetrics } from '../models/Post';
 import { postModel, engagementMetricsModel, followerMetricsModel } from '../models/Post';
 import { dataCollectionJobModel, apiRateLimitModel } from '../models/DataCollection';
@@ -227,8 +228,81 @@ class DataCollectionService {
     }
     
     const YouTubeService = (await import('./platforms/YouTubeService')).default;
-    const youtubeService = new YouTubeService(account.access_token);
-    return await youtubeService.collectData(account, options);
+    const tokenRefreshService = (await import('./platforms/TokenRefreshService')).default;
+    
+    // Get valid access token (refresh if expired)
+    let accessToken = await tokenRefreshService.getValidAccessToken(account);
+    
+    // If token refresh failed, try to get fresh account data
+    if (!accessToken) {
+      const updatedAccount = await SocialAccountModel.account.findById(account.id!);
+      if (updatedAccount) {
+        account = updatedAccount;
+        accessToken = account.access_token || null;
+      }
+    }
+    
+    // Try with stored/refreshed token first
+    if (accessToken) {
+      try {
+        const youtubeService = new YouTubeService(accessToken);
+        return await youtubeService.collectData(account, options);
+      } catch (error: any) {
+        // If 401 error, try refreshing token one more time
+        const is401Error = error.response?.status === 401 || 
+                          error.message?.includes('401') || 
+                          error.message?.includes('authentication failed');
+        
+        if (is401Error && account.refresh_token) {
+          console.log(`[DataCollection] 401 error, attempting token refresh for account ${account.id}...`);
+          const refreshedToken = await tokenRefreshService.refreshYouTubeToken(account);
+          
+          if (refreshedToken) {
+            // Fetch updated account
+            const updatedAccount = await SocialAccountModel.account.findById(account.id!);
+            if (updatedAccount) {
+              const youtubeService = new YouTubeService(refreshedToken);
+              return await youtubeService.collectData(updatedAccount, options);
+            }
+          }
+        }
+        
+        // If 401 error and we have default credentials, try with those as fallback
+        if (is401Error) {
+          const { getDefaultPlatformCredentials } = await import('../config/oauth-config');
+          const defaultCreds = getDefaultPlatformCredentials();
+          
+          if (defaultCreds.youtube.apiKey && defaultCreds.youtube.channelId) {
+            console.log('Stored token failed with 401, trying with default YouTube API key');
+            const fallbackAccount = {
+              ...account,
+              access_token: defaultCreds.youtube.apiKey,
+              platform_account_id: account.platform_account_id || defaultCreds.youtube.channelId,
+            };
+            const youtubeService = new YouTubeService(defaultCreds.youtube.apiKey);
+            return await youtubeService.collectData(fallbackAccount, options);
+          }
+        }
+        // Re-throw if we can't fall back
+        throw error;
+      }
+    }
+    
+    // No stored token, try default credentials
+    const { getDefaultPlatformCredentials } = await import('../config/oauth-config');
+    const defaultCreds = getDefaultPlatformCredentials();
+    
+    if (defaultCreds.youtube.apiKey && defaultCreds.youtube.channelId) {
+      const fallbackAccount = {
+        ...account,
+        access_token: defaultCreds.youtube.apiKey,
+        platform_account_id: account.platform_account_id || defaultCreds.youtube.channelId,
+      };
+      const youtubeService = new YouTubeService(defaultCreds.youtube.apiKey);
+      return await youtubeService.collectData(fallbackAccount, options);
+    }
+    
+    throw new Error('YouTube account is missing an access token or API key. Please configure YOUTUBE_API_KEY and YOUTUBE_CHANNEL_ID in your environment variables or reconnect your YouTube account in Settings.');
   }
 
   /**

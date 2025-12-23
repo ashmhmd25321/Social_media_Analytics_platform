@@ -8,6 +8,7 @@ import { motion } from 'framer-motion';
 import { FileText, TrendingUp, Image, Video, File, ArrowLeft, Download, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { MetricCard } from '@/components/analytics';
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 
 interface TopPost {
   id: number;
@@ -42,55 +43,80 @@ export default function ContentPerformancePage() {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<number>(30);
 
-  useEffect(() => {
-    fetchContentData();
-  }, [timeRange]);
-
   const fetchContentData = async () => {
     try {
       setLoading(true);
       
-      // Fetch top posts
-      const topPostsResponse = await api.get<{ data: TopPost[] }>(`/analytics/posts/top?limit=10`);
-      if (topPostsResponse.success && topPostsResponse.data) {
-        const topPosts = topPostsResponse.data;
+      // Fetch content performance metrics - DISABLE CACHE for fresh data
+      const performanceResponse = await api.get<{ data: ContentPerformance }>(`/analytics/content/performance?days=${timeRange}`, false);
+      
+      // Fetch top posts - DISABLE CACHE for fresh data (filtered by time range)
+      const topPostsResponse = await api.get<{ data: TopPost[] }>(`/analytics/posts/top?limit=10&days=${timeRange}`, false);
+      
+      if (performanceResponse.success && performanceResponse.data) {
+        const performanceData = performanceResponse.data;
+        const topPosts = topPostsResponse.success && topPostsResponse.data ? topPostsResponse.data : [];
         
-        // Calculate content type breakdown
-        const contentTypeBreakdown: ContentTypeMetrics = {
-          text: 0,
-          image: 0,
-          video: 0,
-          carousel: 0,
-        };
-
-        // Mock data for now - will be replaced with real API call
         setPerformance({
-          totalPosts: 156,
-          averageEngagementRate: 4.2,
-          topPosts: topPosts.length > 0 ? topPosts : [],
+          totalPosts: performanceData.totalPosts,
+          averageEngagementRate: performanceData.averageEngagementRate,
+          topPosts: topPosts,
+          contentTypeBreakdown: performanceData.contentTypeBreakdown,
+          bestPostingDays: performanceData.bestPostingDays,
+        });
+      } else {
+        // If no data available, set empty state
+        setPerformance({
+          totalPosts: 0,
+          averageEngagementRate: 0,
+          topPosts: topPostsResponse.success && topPostsResponse.data ? topPostsResponse.data : [],
           contentTypeBreakdown: {
-            text: 45,
-            image: 78,
-            video: 28,
-            carousel: 5,
+            text: 0,
+            image: 0,
+            video: 0,
+            carousel: 0,
           },
           bestPostingDays: [
-            { day: 'Monday', engagement: 120 },
-            { day: 'Tuesday', engagement: 95 },
-            { day: 'Wednesday', engagement: 140 },
-            { day: 'Thursday', engagement: 110 },
-            { day: 'Friday', engagement: 160 },
-            { day: 'Saturday', engagement: 85 },
-            { day: 'Sunday', engagement: 75 },
+            { day: 'Monday', engagement: 0 },
+            { day: 'Tuesday', engagement: 0 },
+            { day: 'Wednesday', engagement: 0 },
+            { day: 'Thursday', engagement: 0 },
+            { day: 'Friday', engagement: 0 },
+            { day: 'Saturday', engagement: 0 },
+            { day: 'Sunday', engagement: 0 },
           ],
         });
       }
     } catch (error) {
       console.error('Error fetching content data:', error);
+      // Set empty state on error
+      setPerformance({
+        totalPosts: 0,
+        averageEngagementRate: 0,
+        topPosts: [],
+        contentTypeBreakdown: {
+          text: 0,
+          image: 0,
+          video: 0,
+          carousel: 0,
+        },
+        bestPostingDays: [
+          { day: 'Monday', engagement: 0 },
+          { day: 'Tuesday', engagement: 0 },
+          { day: 'Wednesday', engagement: 0 },
+          { day: 'Thursday', engagement: 0 },
+          { day: 'Friday', engagement: 0 },
+          { day: 'Saturday', engagement: 0 },
+          { day: 'Sunday', engagement: 0 },
+        ],
+      });
     } finally {
       setLoading(false);
     }
   };
+
+  // Use the refresh hook to refetch data when page becomes visible or when navigating back
+  usePageRefresh(fetchContentData, [timeRange]);
 
   const exportData = () => {
     // TODO: Implement CSV/PDF export
@@ -306,23 +332,14 @@ export default function ContentPerformancePage() {
               transition={{ delay: 0.6 }}
             >
               <h3 className="text-xl font-bold text-white mb-4">Best Posting Days</h3>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {performance.bestPostingDays.map((day, index) => {
-                  const maxEngagement = Math.max(...performance.bestPostingDays.map(d => d.engagement));
-                  const width = maxEngagement > 0 ? (day.engagement / maxEngagement) * 100 : 0;
+                  const engagement = Number(day.engagement) || 0;
                   
                   return (
-                    <div key={index}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-white font-medium">{day.day}</span>
-                        <span className="text-white/70">{day.engagement} avg engagement</span>
-                      </div>
-                      <div className="w-full bg-white/10 rounded-full h-3">
-                        <div
-                          className="bg-gradient-to-r from-primary-500 to-secondary-500 h-3 rounded-full transition-all"
-                          style={{ width: `${width}%` }}
-                        />
-                      </div>
+                    <div key={index} className="flex items-center justify-between py-2 border-b border-white/10 last:border-b-0">
+                      <span className="text-white font-medium">{day.day}</span>
+                      <span className="text-white/70 font-semibold">{engagement.toLocaleString()} avg engagement</span>
                     </div>
                   );
                 })}

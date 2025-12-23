@@ -8,6 +8,7 @@ import { motion } from 'framer-motion';
 import { Heart, MessageCircle, Share2, TrendingUp, Clock, ArrowLeft, Download } from 'lucide-react';
 import Link from 'next/link';
 import { LineChart, MetricCard, BarChart } from '@/components/analytics';
+import { usePageRefresh } from '@/hooks/usePageRefresh';
 
 interface EngagementTrend {
   date: string;
@@ -33,16 +34,12 @@ export default function EngagementMetricsPage() {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<number>(30);
 
-  useEffect(() => {
-    fetchEngagementData();
-  }, [timeRange]);
-
   const fetchEngagementData = async () => {
     try {
       setLoading(true);
       
-      // Fetch engagement trends
-      const trendsResponse = await api.get<{ data: EngagementTrend[] }>(`/analytics/engagement/trends?days=${timeRange}`);
+      // Fetch engagement trends - DISABLE CACHE for fresh data
+      const trendsResponse = await api.get<{ data: EngagementTrend[] }>(`/analytics/engagement/trends?days=${timeRange}`, false);
       if (trendsResponse.success && trendsResponse.data) {
         setEngagementTrends(trendsResponse.data);
       }
@@ -85,6 +82,9 @@ export default function EngagementMetricsPage() {
       setLoading(false);
     }
   };
+
+  // Use the refresh hook to refetch data when page becomes visible or when navigating back
+  usePageRefresh(fetchEngagementData, [timeRange]);
 
   const exportData = () => {
     // TODO: Implement CSV/PDF export

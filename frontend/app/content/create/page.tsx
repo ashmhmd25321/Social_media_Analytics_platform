@@ -72,7 +72,8 @@ export default function CreateContentPage() {
 
   const fetchAccounts = async () => {
     try {
-      const response = await api.get<{ data: ConnectedAccount[] }>('/social/accounts');
+      // Use cache with short TTL (30 seconds) to reduce requests
+      const response = await api.get<{ data: ConnectedAccount[] }>('/social/accounts', true, 30 * 1000);
       if (response.success && response.data) {
         setAccounts(Array.isArray(response.data) ? response.data : []);
       }
@@ -83,7 +84,8 @@ export default function CreateContentPage() {
 
   const fetchTemplates = async () => {
     try {
-      const response = await api.get<{ data: any[] }>('/content/templates');
+      // Use cache with short TTL (30 seconds) to reduce requests
+      const response = await api.get<{ data: any[] }>('/content/templates', true, 30 * 1000);
       if (response.success && response.data) {
         setTemplates(Array.isArray(response.data) ? response.data : []);
       }
@@ -142,9 +144,14 @@ export default function CreateContentPage() {
         setSelectedPlatforms([]);
         // Navigate immediately to library
         setTimeout(() => {
+          // Clear cache for drafts endpoint
+          const { apiCache } = require('@/lib/cache');
+          apiCache.delete(apiCache.generateKey('/content/drafts'));
+          // Set refresh flag for content library page
+          sessionStorage.setItem('refresh_content_library', 'true');
+          // Dispatch custom event
+          window.dispatchEvent(new CustomEvent('refreshContentLibrary'));
           router.push('/content/library');
-          // Force a refresh by adding a timestamp query param
-          router.refresh();
         }, 1000);
       } else {
         setMessage({ type: 'error', text: response.message || 'Failed to save draft' });
@@ -188,6 +195,13 @@ export default function CreateContentPage() {
       await Promise.all(schedulePromises);
       setMessage({ type: 'success', text: 'Post scheduled successfully!' });
       setTimeout(() => {
+        // Clear cache for scheduled posts endpoint
+        const { apiCache } = require('@/lib/cache');
+        apiCache.delete(apiCache.generateKey('/content/scheduled'));
+        // Set refresh flag for scheduled posts page
+        sessionStorage.setItem('refresh_content_scheduled', 'true');
+        // Dispatch custom event
+        window.dispatchEvent(new CustomEvent('refreshContentScheduled'));
         router.push('/content/scheduled');
       }, 1500);
     } catch (error) {

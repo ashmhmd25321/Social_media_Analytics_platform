@@ -134,7 +134,55 @@
 
 **Note:** Some permissions require **App Review** for production use. For development, you can test with your own account without review.
 
-### Step 6: Test the Connection
+### Step 6: Add Test Users (For Development Mode)
+
+**Important:** If your Facebook app is in **Development Mode** (default), you need to add test users who can connect their accounts.
+
+1. **Go to App Roles:**
+   - In your Facebook App dashboard, go to **"Roles"** (under "Settings" in left sidebar)
+   - Scroll to **"Test Users"** section
+
+2. **Add Test Users:**
+   - Click **"+ Add Test Users"**
+   - Enter **email addresses** (one per line) of people who should be able to connect
+   - Click **"Add"**
+
+3. **Add Yourself as Admin/Developer:**
+   - Still in **"Roles"** page
+   - Scroll to **"Administrators"** or **"Developers"** section
+   - Click **"+ Add People"**
+   - Enter your Facebook account **email** or search for your name
+   - Select your account and choose role: **"Administrator"** or **"Developer"**
+   - Click **"Add"**
+
+#### 📧 Phone Number vs Email Accounts
+
+**Question:** Can I use a Facebook account created with a phone number?
+
+**Answer:** Yes, but you need to add an email address to it first!
+
+**Why?**
+- Facebook accounts can be created with either **phone number** or **email**
+- However, for **OAuth/API access**, Facebook requires an **email address**
+- When adding test users in Facebook App settings, you must use **email addresses** (not phone numbers)
+
+**How to Add Email to Phone-Number-Based Account:**
+
+1. **Log in to Facebook** with your phone-number-based account
+2. Go to **Settings** → **Personal Information** → **Contact**
+3. Click **"Add Email Address"**
+4. Enter a valid email address
+5. Verify the email (Facebook will send a confirmation code)
+6. Once verified, you can use this email when adding test users
+
+**For Test Users:**
+- Use the **email address** associated with the Facebook account
+- If the account only has a phone number, add an email first
+- Then use that email when adding test users in Facebook App settings
+
+**Note:** You can also create a new Facebook account with an email specifically for testing purposes, as mentioned in the PDF guide.
+
+### Step 7: Test the Connection
 
 1. **Start your backend:**
    ```bash
@@ -218,8 +266,10 @@ DataCollectionService → collectMockData() → MockService → Generated fake d
 ### Problem: "App Not Setup: This app is still in development mode"
 
 **Solution:**
-- Go to Facebook App → "Settings" → "Basic"
-- Add test users in "Roles" → "Test Users"
+- Go to Facebook App → "Settings" → "Roles"
+- Add test users in "Test Users" section
+- **Important:** Use **email addresses** (not phone numbers) when adding test users
+- If a Facebook account was created with a phone number, add an email to that account first
 - Or submit app for review (for production)
 
 ### Problem: "Insufficient Permissions"

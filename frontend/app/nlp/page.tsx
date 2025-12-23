@@ -14,7 +14,6 @@ import {
   XCircle,
   Loader2,
   Copy,
-  RefreshCw,
 } from 'lucide-react';
 
 interface SentimentResult {
@@ -24,6 +23,18 @@ interface SentimentResult {
   classification?: 'positive' | 'neutral' | 'negative';
   emotion?: string;
   emotionConfidence?: number;
+  recommendations?: Array<{
+    type: string;
+    priority: string;
+    title: string;
+    description: string;
+    actions: string[];
+    urgency: string;
+  }>;
+  recommendationCount?: number;
+  modelsUsed?: string[];
+  features?: any;
+  modelResults?: any;
 }
 
 interface KeywordResult {
@@ -44,7 +55,7 @@ interface Recommendation {
 }
 
 export default function NLPPage() {
-  const [activeTab, setActiveTab] = useState<'sentiment' | 'keywords' | 'recommendations'>('sentiment');
+  const [activeTab, setActiveTab] = useState<'sentiment' | 'keywords'>('sentiment');
   const [inputText, setInputText] = useState('');
   const [sentimentResult, setSentimentResult] = useState<SentimentResult | null>(null);
   const [keywordsResult, setKeywordsResult] = useState<KeywordResult[]>([]);
@@ -69,15 +80,40 @@ export default function NLPPage() {
       if (response.success && response.data) {
         // Map label to classification for backward compatibility
         const result = response.data;
+        
         setSentimentResult({
           ...result,
           label: result.label || result.classification,
         });
+        
+        // If recommendations are included in sentiment result, show them
+        if (result.recommendations && result.recommendations.length > 0) {
+          // Convert sentiment recommendations to the Recommendation format
+          const sentimentRecommendations: Recommendation[] = result.recommendations.map((rec: any, idx: number) => ({
+            id: idx,
+            recommendation_type: rec.type || 'sentiment',
+            title: rec.title || 'Recommendation',
+            description: rec.description || '',
+            priority: rec.priority || 'medium',
+            actionable: rec.actions && rec.actions.length > 0,
+            related_data: {
+              actions: rec.actions || [],
+              urgency: rec.urgency || 'medium',
+            },
+            confidence_score: result.ensembleConfidence || result.emotionConfidence || 0.5,
+          }));
+          setRecommendations(sentimentRecommendations);
+        }
       } else {
-        setError('Failed to analyze sentiment');
+        setError(response.message || 'Failed to analyze sentiment');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to analyze sentiment');
+      // Check if it's a service unavailable error
+      if (err.response?.status === 503 || err.response?.data?.error === 'SERVICE_UNAVAILABLE') {
+        setError('Python ML service is not available. Please start the Python service: cd python-service && python app.py');
+      } else {
+        setError(err.response?.data?.message || err.message || 'Failed to analyze sentiment');
+      }
       console.error('Error analyzing sentiment:', err);
     } finally {
       setLoading(false);
@@ -118,24 +154,6 @@ export default function NLPPage() {
     }
   };
 
-  const fetchRecommendations = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await api.get<{ data: Recommendation[] }>('/nlp/recommendations');
-
-      if (response.success && response.data) {
-        setRecommendations(Array.isArray(response.data) ? response.data : []);
-      } else {
-        setError('Failed to fetch recommendations');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch recommendations');
-      console.error('Error fetching recommendations:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getSentimentColor = (label: string) => {
     switch (label) {
@@ -283,30 +301,12 @@ export default function NLPPage() {
                 Keyword Extraction
               </div>
             </button>
-            <button
-              onClick={() => {
-                setActiveTab('recommendations');
-                if (recommendations.length === 0) {
-                  fetchRecommendations();
-                }
-              }}
-              className={`flex-1 px-4 py-2 rounded-lg transition-all ${
-                activeTab === 'recommendations'
-                  ? 'bg-gradient-to-r from-primary-500 to-secondary-500 text-white shadow-lg'
-                  : 'text-white/70 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <Lightbulb className="w-4 h-4" />
-                Recommendations
-              </div>
-            </button>
           </div>
 
           {/* Content */}
           <div className="space-y-6">
             {/* Input Section */}
-            {activeTab !== 'recommendations' && (
+            {(
               <motion.div
                 className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
                 initial={{ y: 20, opacity: 0 }}
@@ -353,7 +353,7 @@ export default function NLPPage() {
             )}
 
             {/* Action Button */}
-            {activeTab !== 'recommendations' && (
+            {(
               <motion.div
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
@@ -384,31 +384,6 @@ export default function NLPPage() {
               </motion.div>
             )}
 
-            {/* Recommendations Refresh Button */}
-            {activeTab === 'recommendations' && (
-              <motion.div
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-              >
-                <button
-                  onClick={fetchRecommendations}
-                  disabled={loading}
-                  className="w-full px-6 py-4 bg-gradient-to-r from-primary-500 to-secondary-500 text-white rounded-lg hover:from-primary-600 hover:to-secondary-600 transition-all shadow-lg shadow-primary-500/30 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Loading...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-5 h-5" />
-                      Refresh Recommendations
-                    </>
-                  )}
-                </button>
-              </motion.div>
-            )}
 
             {/* Error Message */}
             {error && (
@@ -431,8 +406,39 @@ export default function NLPPage() {
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
               >
-                <h3 className="text-xl font-bold text-white mb-4">Sentiment Analysis Result</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold text-white">Sentiment Analysis Result</h3>
+                  {sentimentResult.modelsUsed && sentimentResult.modelsUsed.length > 0 && (
+                    <div className="text-xs text-white/60">
+                      Models: {sentimentResult.modelsUsed.join(', ')}
+                    </div>
+                  )}
+                </div>
+                
+                {/* Show recommendations if available from sentiment analysis */}
+                {sentimentResult.recommendations && sentimentResult.recommendations.length > 0 && (
+                  <div className="mb-6 p-4 bg-primary-500/10 border border-primary-500/30 rounded-lg">
+                    <h4 className="text-white font-semibold mb-2 flex items-center gap-2">
+                      <Lightbulb className="w-4 h-4" />
+                      AI Recommendations ({sentimentResult.recommendationCount || sentimentResult.recommendations.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {sentimentResult.recommendations.slice(0, 3).map((rec, idx) => (
+                        <div key={idx} className="text-sm text-white/80">
+                          <span className="font-semibold text-primary-300">{rec.title}:</span> {rec.description}
+                          {rec.actions && rec.actions.length > 0 && (
+                            <ul className="ml-4 mt-1 list-disc text-white/60">
+                              {rec.actions.slice(0, 2).map((action, aidx) => (
+                                <li key={aidx}>{action}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div className={`bg-gradient-to-br ${getSentimentColor(sentimentResult.label || sentimentResult.classification || 'neutral')} rounded-xl p-6 text-white`}>
                     <div className="flex items-center gap-3 mb-2">
                       {React.createElement(getSentimentIcon(sentimentResult.label || sentimentResult.classification || 'neutral'), { className: 'w-6 h-6' })}
@@ -451,14 +457,6 @@ export default function NLPPage() {
                       </p>
                     </div>
                   )}
-                  <div className="bg-white/10 rounded-xl p-6 text-white border border-white/20">
-                    <div className="text-2xl font-bold mb-2">{sentimentResult.score.toFixed(2)}</div>
-                    <p className="text-sm opacity-70">Sentiment Score</p>
-                  </div>
-                  <div className="bg-white/10 rounded-xl p-6 text-white border border-white/20">
-                    <div className="text-2xl font-bold mb-2">{sentimentResult.comparative.toFixed(4)}</div>
-                    <p className="text-sm opacity-70">Comparative Score</p>
-                  </div>
                 </div>
               </motion.div>
             )}
@@ -498,81 +496,6 @@ export default function NLPPage() {
               </motion.div>
             )}
 
-            {activeTab === 'recommendations' && (
-              <motion.div
-                className="space-y-4"
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-              >
-                {loading ? (
-                  <div className="text-center py-12">
-                    <Loader2 className="w-12 h-12 text-white animate-spin mx-auto mb-4" />
-                    <p className="text-white/70">Loading recommendations...</p>
-                  </div>
-                ) : recommendations.length === 0 ? (
-                  <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-12 border-2 border-white/20 shadow-lg text-center">
-                    <Lightbulb className="w-16 h-16 text-white/40 mx-auto mb-4" />
-                    <h3 className="text-xl font-bold text-white mb-2">No recommendations yet</h3>
-                    <p className="text-white/60 mb-6">Click "Refresh Recommendations" to generate AI-powered content suggestions</p>
-                  </div>
-                ) : (
-                  recommendations.map((rec, idx) => (
-                    <motion.div
-                      key={idx}
-                      className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
-                      initial={{ y: 20, opacity: 0 }}
-                      animate={{ y: 0, opacity: 1 }}
-                      transition={{ delay: idx * 0.1 }}
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center">
-                            <Lightbulb className="w-5 h-5 text-white" />
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-bold text-white">{rec.title}</h3>
-                            <span className="text-xs text-white/60 capitalize">{rec.recommendation_type.replace('_', ' ')}</span>
-                          </div>
-                        </div>
-                        {rec.confidence_score && (
-                          <span className="px-3 py-1 rounded-full bg-white/10 text-white text-xs">
-                            {(rec.confidence_score * 100).toFixed(0)}% confidence
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-white/70 mb-4">{rec.description}</p>
-                      {rec.related_data && (
-                        <div className="mb-4 p-3 bg-white/5 rounded-lg">
-                          <p className="text-xs text-white/50 mb-1">Related Data:</p>
-                          <pre className="text-xs text-white/70 overflow-x-auto">
-                            {JSON.stringify(rec.related_data, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between">
-                        <span className={`px-3 py-1 rounded-full text-xs capitalize ${
-                          rec.priority === 'high'
-                            ? 'bg-orange-500/20 text-orange-300'
-                            : rec.priority === 'medium'
-                            ? 'bg-blue-500/20 text-blue-300'
-                            : 'bg-gray-500/20 text-gray-300'
-                        }`}>
-                          {rec.priority} priority
-                        </span>
-                        {rec.actionable && rec.action_url && (
-                          <a
-                            href={rec.action_url}
-                            className="text-primary-300 hover:text-primary-200 text-sm flex items-center gap-1"
-                          >
-                            Take Action <TrendingUp className="w-4 h-4" />
-                          </a>
-                        )}
-                      </div>
-                    </motion.div>
-                  ))
-                )}
-              </motion.div>
-            )}
           </div>
         </div>
       </div>
