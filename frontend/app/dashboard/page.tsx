@@ -79,8 +79,8 @@ export default function DashboardPage() {
         setOverview(overviewResponse.data);
       }
 
-      // Fetch follower trends - DISABLE CACHE for fresh data
-      const followerResponse = await api.get<FollowerTrend[]>(`/analytics/followers/trends?days=${timeRange}`, false);
+      // Fetch follower trends - DISABLE CACHE for fresh data, use day view (not filtered by time range)
+      const followerResponse = await api.get<FollowerTrend[]>(`/analytics/followers/trends?view=day`, false);
       if (followerResponse.success && followerResponse.data) {
         setFollowerTrends(Array.isArray(followerResponse.data) ? followerResponse.data : []);
       }
@@ -348,9 +348,9 @@ export default function DashboardPage() {
                   <LineChart
                     data={followerTrends.map(t => ({
                       date: t.date,
-                      followers: t.followers,
+                      'New Followers': t.followers,
                     }))}
-                    dataKey="followers"
+                    dataKey="New Followers"
                     title="Follower Growth"
                     color="#06b6d4"
                     delay={0.5}

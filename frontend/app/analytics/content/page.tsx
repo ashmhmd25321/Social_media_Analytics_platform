@@ -214,21 +214,18 @@ export default function ContentPerformancePage() {
               title="Total Posts"
               value={performance?.totalPosts.toString() || '0'}
               icon={FileText}
-              trend={0}
               delay={0.1}
             />
             <MetricCard
               title="Avg Engagement Rate"
               value={`${performance?.averageEngagementRate.toFixed(1) || '0'}%`}
               icon={TrendingUp}
-              trend={performance?.averageEngagementRate || 0}
               delay={0.2}
             />
             <MetricCard
               title="Top Post Engagement"
               value={performance?.topPosts[0]?.engagement_rate.toFixed(1) + '%' || '0%'}
               icon={TrendingUp}
-              trend={performance?.topPosts[0]?.engagement_rate || 0}
               delay={0.3}
             />
           </div>

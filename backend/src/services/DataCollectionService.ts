@@ -124,7 +124,19 @@ class DataCollectionService {
 
       // Store follower metrics if available
       if (data.followerMetrics) {
+        // Update current metrics
         await followerMetricsModel.upsert(data.followerMetrics);
+        
+        // Create a daily snapshot for historical tracking
+        const now = new Date();
+        await followerMetricsModel.createSnapshot({
+          account_id: data.followerMetrics.account_id,
+          follower_count: data.followerMetrics.follower_count || 0,
+          following_count: data.followerMetrics.following_count || 0,
+          posts_count: data.followerMetrics.posts_count || 0,
+          snapshot_date: now,
+          snapshot_time: now,
+        });
       }
 
       const duration = Math.floor((Date.now() - startTime) / 1000);

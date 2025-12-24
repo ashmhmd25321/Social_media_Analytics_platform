@@ -155,11 +155,13 @@ class AnalyticsService {
 
   /**
    * Get follower trends over time
+   * Returns daily follower additions (new followers per day), not cumulative counts
+   * Supports day/month/year view aggregation
    * Uses follower_snapshots if available, otherwise falls back to follower_metrics
    */
   async getFollowerTrends(
     userId: number,
-    days: number = 30
+    view: 'day' | 'month' | 'year' = 'day'
   ): Promise<FollowerTrend[]> {
     const accounts = await UserSocialAccountModelInstance.findByUserId(userId);
     const accountIds = accounts.map(acc => acc.id!);
@@ -168,88 +170,163 @@ class AnalyticsService {
       return [];
     }
 
-    // First try to get data from follower_snapshots (if available)
-    const [snapshotRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT 
-         DATE_FORMAT(fs.snapshot_date, '%Y-%m-%d') as date,
-         SUM(fs.follower_count) as followers,
-         sp.name as platform
-       FROM follower_snapshots fs
-       INNER JOIN user_social_accounts usa ON fs.account_id = usa.id
-       INNER JOIN social_platforms sp ON usa.platform_id = sp.id
-       WHERE fs.account_id IN (${accountIds.map(() => '?').join(',')})
-       AND fs.snapshot_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-       GROUP BY DATE(fs.snapshot_date), sp.name
-       ORDER BY fs.snapshot_date ASC, fs.snapshot_time ASC`,
-      [...accountIds, days]
-    );
+    // Query structure depends on view type (day/month/year)
 
-    // If we have snapshot data, use it
+    // First try to get data from follower_snapshots (if available)
+    // Get the latest snapshot per account per period to calculate additions
+    const snapshotQuery = view === 'day'
+      ? `SELECT 
+           DATE_FORMAT(fs.snapshot_date, '%Y-%m-%d') as date,
+           SUM(fs.follower_count) as total_followers
+         FROM follower_snapshots fs
+         INNER JOIN user_social_accounts usa ON fs.account_id = usa.id
+         WHERE fs.account_id IN (${accountIds.map(() => '?').join(',')})
+         AND fs.snapshot_date = (
+           SELECT MAX(fs2.snapshot_date)
+           FROM follower_snapshots fs2
+           WHERE fs2.account_id = fs.account_id
+           AND DATE(fs2.snapshot_date) = DATE(fs.snapshot_date)
+         )
+         GROUP BY DATE(fs.snapshot_date)
+         ORDER BY DATE(fs.snapshot_date) ASC`
+      : view === 'month'
+      ? `SELECT 
+           DATE_FORMAT(fs.snapshot_date, '%Y-%m') as date,
+           SUM(fs.follower_count) as total_followers
+         FROM follower_snapshots fs
+         INNER JOIN user_social_accounts usa ON fs.account_id = usa.id
+         WHERE fs.account_id IN (${accountIds.map(() => '?').join(',')})
+         AND (fs.snapshot_date, fs.account_id) = (
+           SELECT MAX(fs2.snapshot_date), fs2.account_id
+           FROM follower_snapshots fs2
+           WHERE fs2.account_id = fs.account_id
+           AND YEAR(fs2.snapshot_date) = YEAR(fs.snapshot_date)
+           AND MONTH(fs2.snapshot_date) = MONTH(fs.snapshot_date)
+         )
+         GROUP BY YEAR(fs.snapshot_date), MONTH(fs.snapshot_date)
+         ORDER BY YEAR(fs.snapshot_date) ASC, MONTH(fs.snapshot_date) ASC`
+      : `SELECT 
+           DATE_FORMAT(fs.snapshot_date, '%Y') as date,
+           SUM(fs.follower_count) as total_followers
+         FROM follower_snapshots fs
+         INNER JOIN user_social_accounts usa ON fs.account_id = usa.id
+         WHERE fs.account_id IN (${accountIds.map(() => '?').join(',')})
+         AND (fs.snapshot_date, fs.account_id) = (
+           SELECT MAX(fs2.snapshot_date), fs2.account_id
+           FROM follower_snapshots fs2
+           WHERE fs2.account_id = fs.account_id
+           AND YEAR(fs2.snapshot_date) = YEAR(fs.snapshot_date)
+         )
+         GROUP BY YEAR(fs.snapshot_date)
+         ORDER BY YEAR(fs.snapshot_date) ASC`;
+
+    const [snapshotRows] = await pool.execute<RowDataPacket[]>(snapshotQuery, accountIds);
+
+    // If we have snapshot data, calculate daily additions
     if (snapshotRows.length > 0) {
-      return snapshotRows.map(row => {
-        // DATE_FORMAT returns a string in YYYY-MM-DD format
-        let formattedDate: string;
-        if (typeof row.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.date)) {
-          formattedDate = row.date;
-        } else if (row.date instanceof Date) {
-          formattedDate = row.date.toISOString().split('T')[0];
+      const trends: FollowerTrend[] = [];
+      
+      for (let i = 0; i < snapshotRows.length; i++) {
+        const currentRow = snapshotRows[i];
+        const currentDate = currentRow.date;
+        const currentTotal = Number(currentRow.total_followers) || 0;
+        
+        // Calculate additions: difference from previous period
+        let additions = 0;
+        if (i === 0) {
+          // First period: all followers are "new"
+          additions = currentTotal;
         } else {
-          // If date is invalid, use current date as fallback
-          console.warn(`Invalid date format from database: ${row.date}, using current date`);
-          formattedDate = new Date().toISOString().split('T')[0];
+          // Calculate difference from previous period
+          const prevRow = snapshotRows[i - 1];
+          const prevTotal = Number(prevRow.total_followers) || 0;
+          additions = Math.max(0, currentTotal - prevTotal);
         }
         
-        return {
-          date: formattedDate,
-          followers: row.followers || 0,
-          platform: row.platform || 'unknown',
-        };
+        trends.push({
+          date: currentDate,
+          followers: additions,
+          platform: 'all', // Aggregated across all platforms
+        });
+      }
+      
+      return trends;
+    }
+
+    // Fallback: Use follower_metrics
+    // Get the latest follower count per account per day/month/year
+    const metricsQuery = view === 'day'
+      ? `SELECT 
+           DATE_FORMAT(fm.recorded_at, '%Y-%m-%d') as date,
+           SUM(fm.follower_count) as total_followers
+         FROM follower_metrics fm
+         INNER JOIN user_social_accounts usa ON fm.account_id = usa.id
+         WHERE fm.account_id IN (${accountIds.map(() => '?').join(',')})
+         AND fm.recorded_at = (
+           SELECT MAX(fm2.recorded_at)
+           FROM follower_metrics fm2
+           WHERE fm2.account_id = fm.account_id
+           AND DATE(fm2.recorded_at) = DATE(fm.recorded_at)
+         )
+         GROUP BY DATE(fm.recorded_at)
+         ORDER BY DATE(fm.recorded_at) ASC`
+      : view === 'month'
+      ? `SELECT 
+           DATE_FORMAT(fm.recorded_at, '%Y-%m') as date,
+           SUM(fm.follower_count) as total_followers
+         FROM follower_metrics fm
+         INNER JOIN user_social_accounts usa ON fm.account_id = usa.id
+         WHERE fm.account_id IN (${accountIds.map(() => '?').join(',')})
+         AND fm.recorded_at = (
+           SELECT MAX(fm2.recorded_at)
+           FROM follower_metrics fm2
+           WHERE fm2.account_id = fm.account_id
+           AND YEAR(fm2.recorded_at) = YEAR(fm.recorded_at)
+           AND MONTH(fm2.recorded_at) = MONTH(fm.recorded_at)
+         )
+         GROUP BY YEAR(fm.recorded_at), MONTH(fm.recorded_at)
+         ORDER BY YEAR(fm.recorded_at) ASC, MONTH(fm.recorded_at) ASC`
+      : `SELECT 
+           DATE_FORMAT(fm.recorded_at, '%Y') as date,
+           SUM(fm.follower_count) as total_followers
+         FROM follower_metrics fm
+         INNER JOIN user_social_accounts usa ON fm.account_id = usa.id
+         WHERE fm.account_id IN (${accountIds.map(() => '?').join(',')})
+         AND fm.recorded_at = (
+           SELECT MAX(fm2.recorded_at)
+           FROM follower_metrics fm2
+           WHERE fm2.account_id = fm.account_id
+           AND YEAR(fm2.recorded_at) = YEAR(fm.recorded_at)
+         )
+         GROUP BY YEAR(fm.recorded_at)
+         ORDER BY YEAR(fm.recorded_at) ASC`;
+
+    const [metricsRows] = await pool.execute<RowDataPacket[]>(metricsQuery, accountIds);
+
+    // Calculate daily additions from metrics
+    const trends: FollowerTrend[] = [];
+    for (let i = 0; i < metricsRows.length; i++) {
+      const currentRow = metricsRows[i];
+      const currentDate = currentRow.date;
+      const currentTotal = Number(currentRow.total_followers) || 0;
+      
+      let additions = 0;
+      if (i === 0) {
+        additions = currentTotal;
+      } else {
+        const prevRow = metricsRows[i - 1];
+        const prevTotal = Number(prevRow.total_followers) || 0;
+        additions = Math.max(0, currentTotal - prevTotal);
+      }
+      
+      trends.push({
+        date: currentDate,
+        followers: additions,
+        platform: 'all',
       });
     }
 
-    // Fallback: Use follower_metrics and group by date
-    // Get the latest follower count per account per day
-    const [metricsRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT 
-         DATE_FORMAT(fm.recorded_at, '%Y-%m-%d') as date,
-         SUM(fm.follower_count) as followers,
-         sp.name as platform
-       FROM follower_metrics fm
-       INNER JOIN user_social_accounts usa ON fm.account_id = usa.id
-       INNER JOIN social_platforms sp ON usa.platform_id = sp.id
-       WHERE fm.account_id IN (${accountIds.map(() => '?').join(',')})
-       AND fm.recorded_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-       AND fm.recorded_at = (
-         SELECT MAX(fm2.recorded_at)
-         FROM follower_metrics fm2
-         WHERE fm2.account_id = fm.account_id
-         AND DATE(fm2.recorded_at) = DATE(fm.recorded_at)
-       )
-       GROUP BY DATE(fm.recorded_at), sp.name
-       ORDER BY DATE(fm.recorded_at) ASC`,
-      [...accountIds, days]
-    );
-
-    return metricsRows.map(row => {
-      // DATE_FORMAT returns a string in YYYY-MM-DD format, so we can use it directly
-      // But validate it's a proper date format
-      let formattedDate: string;
-      if (typeof row.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.date)) {
-        formattedDate = row.date;
-      } else if (row.date instanceof Date) {
-        formattedDate = row.date.toISOString().split('T')[0];
-      } else {
-        // If date is invalid, use current date as fallback
-        console.warn(`Invalid date format from database: ${row.date}, using current date`);
-        formattedDate = new Date().toISOString().split('T')[0];
-      }
-      
-      return {
-        date: formattedDate,
-        followers: row.followers || 0,
-        platform: row.platform || 'unknown',
-      };
-    });
+    return trends;
   }
 
   /**
@@ -260,19 +337,24 @@ class AnalyticsService {
     days: number = 30
   ): Promise<EngagementTrend[]> {
     try {
+      // Use post_engagement_metrics instead of engagement_snapshots for more reliable data
       const [rows] = await pool.execute<RowDataPacket[]>(
         `SELECT 
-           DATE(es.snapshot_date) as date,
-           COALESCE(SUM(es.likes_count), 0) as likes,
-           COALESCE(SUM(es.comments_count), 0) as comments,
-           COALESCE(SUM(es.shares_count), 0) as shares,
-           COALESCE(AVG(es.engagement_rate), 0) as engagement_rate
-         FROM engagement_snapshots es
-         INNER JOIN social_posts sp ON es.post_id = sp.id
+           DATE(sp.published_at) as date,
+           COALESCE(SUM(pem.likes_count), 0) as likes,
+           COALESCE(SUM(pem.comments_count), 0) as comments,
+           COALESCE(SUM(pem.shares_count), 0) as shares,
+           COALESCE(AVG(pem.engagement_rate), 0) as engagement_rate
+         FROM social_posts sp
+         INNER JOIN user_social_accounts usa ON sp.account_id = usa.id
+         LEFT JOIN post_engagement_metrics pem ON sp.id = pem.post_id
          WHERE sp.user_id = ?
-         AND es.snapshot_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-         GROUP BY DATE(es.snapshot_date)
-         ORDER BY es.snapshot_date ASC`,
+           AND sp.is_deleted = FALSE
+           AND usa.is_active = TRUE
+           AND usa.account_status = 'connected'
+           AND sp.published_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+         GROUP BY DATE(sp.published_at)
+         ORDER BY DATE(sp.published_at) ASC`,
         [userId, days]
       );
 
@@ -288,6 +370,98 @@ class AnalyticsService {
       // Return empty array if there's an error or no data
       return [];
     }
+  }
+
+  /**
+   * Get engagement metrics (totals, averages, by platform)
+   */
+  async getEngagementMetrics(
+    userId: number,
+    days: number = 30
+  ): Promise<{
+    totalLikes: number;
+    totalComments: number;
+    totalShares: number;
+    averageEngagementRate: number;
+    averageResponseTime: number;
+    engagementByPlatform: Array<{ platform: string; engagement: number; rate: number }>;
+  }> {
+    const accounts = await UserSocialAccountModelInstance.findByUserId(userId);
+    const accountIds = accounts.map(acc => acc.id!);
+
+    if (accountIds.length === 0) {
+      return {
+        totalLikes: 0,
+        totalComments: 0,
+        totalShares: 0,
+        averageEngagementRate: 0,
+        averageResponseTime: 0,
+        engagementByPlatform: [],
+      };
+    }
+
+    // Get total engagement metrics
+    const [totalRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT 
+         COALESCE(SUM(pem.likes_count), 0) as total_likes,
+         COALESCE(SUM(pem.comments_count), 0) as total_comments,
+         COALESCE(SUM(pem.shares_count), 0) as total_shares,
+         COALESCE(AVG(pem.engagement_rate), 0) as avg_engagement_rate
+       FROM post_engagement_metrics pem
+       INNER JOIN social_posts sp ON pem.post_id = sp.id
+       INNER JOIN user_social_accounts usa ON sp.account_id = usa.id
+       WHERE sp.user_id = ?
+         AND sp.is_deleted = FALSE
+         AND usa.is_active = TRUE
+         AND usa.account_status = 'connected'
+         AND sp.published_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)`,
+      [userId, days]
+    );
+
+    const totalLikes = Number(totalRows[0]?.total_likes) || 0;
+    const totalComments = Number(totalRows[0]?.total_comments) || 0;
+    const totalShares = Number(totalRows[0]?.total_shares) || 0;
+    const averageEngagementRate = parseFloat(String(totalRows[0]?.avg_engagement_rate || '0'));
+
+    // Get engagement by platform
+    const [platformRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT 
+         platform.name as platform,
+         COALESCE(SUM(pem.likes_count + pem.comments_count + pem.shares_count), 0) as total_engagement,
+         COALESCE(AVG(pem.engagement_rate), 0) as avg_rate
+       FROM social_posts posts
+       INNER JOIN user_social_accounts usa ON posts.account_id = usa.id
+       INNER JOIN social_platforms platform ON usa.platform_id = platform.id
+       LEFT JOIN post_engagement_metrics pem ON posts.id = pem.post_id
+       WHERE posts.user_id = ?
+         AND posts.is_deleted = FALSE
+         AND usa.is_active = TRUE
+         AND usa.account_status = 'connected'
+         AND posts.published_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+       GROUP BY platform.name, platform.id
+       HAVING total_engagement > 0
+       ORDER BY total_engagement DESC`,
+      [userId, days]
+    );
+
+    const engagementByPlatform = platformRows.map(row => ({
+      platform: row.platform || 'unknown',
+      engagement: Number(row.total_engagement) || 0,
+      rate: parseFloat(String(row.avg_rate || '0')),
+    }));
+
+    // Calculate average response time (placeholder - would need comment timestamps)
+    // For now, we'll set it to 0 or calculate from available data if possible
+    const averageResponseTime = 0; // TODO: Implement actual response time calculation
+
+    return {
+      totalLikes,
+      totalComments,
+      totalShares,
+      averageEngagementRate,
+      averageResponseTime,
+      engagementByPlatform,
+    };
   }
 
   /**

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
 import { 
   Users, 
@@ -16,7 +17,51 @@ import {
 import Link from 'next/link';
 
 export default function AnalyticsPage() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'audience' | 'content' | 'engagement'>('overview');
+  const [generating, setGenerating] = useState(false);
+
+  const handleGeneratePDF = async () => {
+    try {
+      setGenerating(true);
+      
+      // Get access token from localStorage
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        alert('Please log in to generate reports');
+        return;
+      }
+
+      // Fetch PDF from backend
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api'}/analytics/generate-pdf`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to generate PDF');
+      }
+
+      // Get blob and create download link
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `analytics_report_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert(error instanceof Error ? error.message : 'Failed to generate PDF report. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const analyticsSections = [
     {
@@ -136,14 +181,17 @@ export default function AnalyticsPage() {
                   </div>
                 </div>
               </Link>
-              <Link href="/reports">
-                <div className="bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-all cursor-pointer">
-                  <div className="flex items-center gap-3">
-                    <FileText className="w-5 h-5 text-primary-300" />
-                    <span className="text-white font-medium">Generate Reports</span>
-                  </div>
+              <div 
+                onClick={handleGeneratePDF}
+                className={`bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-all cursor-pointer ${generating ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                <div className="flex items-center gap-3">
+                  <FileText className="w-5 h-5 text-primary-300" />
+                  <span className="text-white font-medium">
+                    {generating ? 'Generating...' : 'Generate Reports'}
+                  </span>
                 </div>
-              </Link>
+              </div>
               <Link href="/insights">
                 <div className="bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-all cursor-pointer">
                   <div className="flex items-center gap-3">

@@ -238,12 +238,18 @@ class FollowerMetricsModel {
   }
 
   // Create historical snapshot
+  // Uses INSERT ... ON DUPLICATE KEY UPDATE to update if snapshot for same account/date/time exists
   async createSnapshot(snapshot: FollowerSnapshot): Promise<number> {
     const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO follower_snapshots (
         account_id, follower_count, following_count, posts_count,
         snapshot_date, snapshot_time
-      ) VALUES (?, ?, ?, ?, DATE(?), TIME(?))`,
+      ) VALUES (?, ?, ?, ?, DATE(?), TIME(?))
+      ON DUPLICATE KEY UPDATE
+        follower_count = VALUES(follower_count),
+        following_count = VALUES(following_count),
+        posts_count = VALUES(posts_count),
+        snapshot_time = VALUES(snapshot_time)`,
       [
         snapshot.account_id,
         snapshot.follower_count || 0,
@@ -253,7 +259,7 @@ class FollowerMetricsModel {
         snapshot.snapshot_time,
       ]
     );
-    return result.insertId;
+    return result.insertId || result.affectedRows > 0 ? 1 : 0;
   }
 
   // Get current metrics for an account

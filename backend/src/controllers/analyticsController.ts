@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { analyticsService } from '../services/AnalyticsService';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class AnalyticsController {
   /**
@@ -28,7 +30,8 @@ export class AnalyticsController {
 
   /**
    * Get follower trends
-   * GET /api/analytics/followers/trends?days=30
+   * GET /api/analytics/followers/trends?view=day|month|year
+   * Returns daily follower additions (new followers per period), not cumulative counts
    */
   async getFollowerTrends(req: Request, res: Response): Promise<void> {
     try {
@@ -38,8 +41,11 @@ export class AnalyticsController {
         return;
       }
 
-      const days = parseInt(req.query.days as string) || 30;
-      const trends = await analyticsService.getFollowerTrends(userId, days);
+      const view = (req.query.view as string) || 'day';
+      const validViews = ['day', 'month', 'year'];
+      const selectedView = validViews.includes(view) ? (view as 'day' | 'month' | 'year') : 'day';
+      
+      const trends = await analyticsService.getFollowerTrends(userId, selectedView);
       res.json({ success: true, data: trends });
     } catch (error) {
       console.error('Error fetching follower trends:', error);
@@ -71,6 +77,31 @@ export class AnalyticsController {
       res.status(500).json({
         success: false,
         message: 'Failed to fetch engagement trends',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * Get engagement metrics
+   * GET /api/analytics/engagement/metrics?days=30
+   */
+  async getEngagementMetrics(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const days = parseInt(req.query.days as string) || 30;
+      const metrics = await analyticsService.getEngagementMetrics(userId, days);
+      res.json({ success: true, data: metrics });
+    } catch (error) {
+      console.error('Error fetching engagement metrics:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch engagement metrics',
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
@@ -195,6 +226,94 @@ export class AnalyticsController {
       res.status(500).json({
         success: false,
         message: 'Failed to fetch content performance',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * Generate comprehensive analytics PDF
+   * GET /api/analytics/generate-pdf
+   */
+  async generatePDF(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const { analyticsPDFService } = await import('../services/AnalyticsPDFService');
+      const { filePath, fileSize } = await analyticsPDFService.generateAnalyticsPDF(userId);
+
+      // Send the PDF file
+      const fullPath = path.join(process.cwd(), filePath.replace(/^\//, ''));
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="analytics_report_${Date.now()}.pdf"`);
+      res.setHeader('Content-Length', fileSize.toString());
+      
+      const fileStream = fs.createReadStream(fullPath);
+      fileStream.pipe(res);
+      
+      fileStream.on('end', () => {
+        // Clean up file after sending
+        setTimeout(() => {
+          try {
+            fs.unlinkSync(fullPath);
+          } catch (error) {
+            console.error('Error deleting PDF file:', error);
+          }
+        }, 5000); // Delete after 5 seconds
+      });
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to generate PDF report',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * Generate comprehensive analytics PDF
+   * GET /api/analytics/generate-pdf
+   */
+  async generatePDF(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const { analyticsPDFService } = await import('../services/AnalyticsPDFService');
+      const { filePath, fileSize } = await analyticsPDFService.generateAnalyticsPDF(userId);
+
+      // Send the PDF file
+      const fullPath = path.join(process.cwd(), filePath.replace(/^\//, ''));
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="analytics_report_${Date.now()}.pdf"`);
+      res.setHeader('Content-Length', fileSize.toString());
+      
+      const fileStream = fs.createReadStream(fullPath);
+      fileStream.pipe(res);
+      
+      fileStream.on('end', () => {
+        // Clean up file after sending
+        setTimeout(() => {
+          try {
+            fs.unlinkSync(fullPath);
+          } catch (error) {
+            console.error('Error deleting PDF file:', error);
+          }
+        }, 5000); // Delete after 5 seconds
+      });
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to generate PDF report',
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }

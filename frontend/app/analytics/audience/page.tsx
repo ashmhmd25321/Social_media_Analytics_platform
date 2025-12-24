@@ -31,13 +31,14 @@ export default function AudienceAnalyticsPage() {
   const [followerTrends, setFollowerTrends] = useState<FollowerTrend[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<number>(30);
+  const [followerView, setFollowerView] = useState<'day' | 'month' | 'year'>('day');
 
   const fetchAudienceData = async () => {
     try {
       setLoading(true);
       
-      // Fetch follower trends - DISABLE CACHE for fresh data
-      const trendsResponse = await api.get<{ data: FollowerTrend[] }>(`/analytics/followers/trends?days=${timeRange}`, false);
+      // Fetch follower trends - DISABLE CACHE for fresh data, use view parameter (not time range)
+      const trendsResponse = await api.get<{ data: FollowerTrend[] }>(`/analytics/followers/trends?view=${followerView}`, false);
       if (trendsResponse.success && trendsResponse.data) {
         setFollowerTrends(trendsResponse.data);
       }
@@ -64,7 +65,7 @@ export default function AudienceAnalyticsPage() {
   };
 
   // Use the refresh hook to refetch data when page becomes visible or when navigating back
-  usePageRefresh(fetchAudienceData, [timeRange]);
+  usePageRefresh(fetchAudienceData, [timeRange, followerView]);
 
   const exportData = () => {
     // TODO: Implement CSV/PDF export
@@ -173,15 +174,34 @@ export default function AudienceAnalyticsPage() {
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.4 }}
             >
-              <LineChart
-                data={followerTrends.map(t => ({
-                  date: t.date,
-                  followers: t.followers,
-                }))}
-                dataKey="followers"
-                title="Follower Growth"
-                color="#06b6d4"
-              />
+              <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold text-white">Follower Growth</h3>
+                  <div className="flex gap-2">
+                    {(['day', 'month', 'year'] as const).map((view) => (
+                      <button
+                        key={view}
+                        onClick={() => setFollowerView(view)}
+                        className={`px-3 py-1 rounded-lg text-sm transition-all ${
+                          followerView === view
+                            ? 'bg-primary-500 text-white'
+                            : 'bg-white/10 text-white/70 hover:bg-white/20'
+                        }`}
+                      >
+                        {view.charAt(0).toUpperCase() + view.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <LineChart
+                  data={followerTrends.map(t => ({
+                    date: t.date,
+                    'New Followers': t.followers,
+                  }))}
+                  dataKey="New Followers"
+                  color="#06b6d4"
+                />
+              </div>
             </motion.div>
 
             {/* Platform Breakdown */}

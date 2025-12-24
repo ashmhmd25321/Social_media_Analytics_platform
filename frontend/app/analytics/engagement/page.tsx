@@ -5,7 +5,7 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
 import { motion } from 'framer-motion';
-import { Heart, MessageCircle, Share2, TrendingUp, Clock, ArrowLeft, Download } from 'lucide-react';
+import { Heart, MessageCircle, Share2, TrendingUp, ArrowLeft, Download } from 'lucide-react';
 import Link from 'next/link';
 import { LineChart, MetricCard, BarChart } from '@/components/analytics';
 import { usePageRefresh } from '@/hooks/usePageRefresh';
@@ -44,40 +44,32 @@ export default function EngagementMetricsPage() {
         setEngagementTrends(trendsResponse.data);
       }
 
-      // Calculate metrics from trends
-      if (engagementTrends.length > 0) {
-        const totalLikes = engagementTrends.reduce((sum, t) => sum + t.likes, 0);
-        const totalComments = engagementTrends.reduce((sum, t) => sum + t.comments, 0);
-        const totalShares = engagementTrends.reduce((sum, t) => sum + t.shares, 0);
-        const avgRate = engagementTrends.reduce((sum, t) => sum + t.engagementRate, 0) / engagementTrends.length;
-
-        setMetrics({
-          totalLikes,
-          totalComments,
-          totalShares,
-          averageEngagementRate: avgRate,
-          averageResponseTime: 2.5, // Mock data - will need backend endpoint
-          engagementByPlatform: [
-            { platform: 'Facebook', engagement: 12500, rate: 4.2 },
-            { platform: 'Instagram', engagement: 8900, rate: 5.8 },
-          ],
-        });
+      // Fetch engagement metrics - DISABLE CACHE for fresh data
+      const metricsResponse = await api.get<EngagementMetrics>(`/analytics/engagement/metrics?days=${timeRange}`, false);
+      if (metricsResponse.success && metricsResponse.data) {
+        setMetrics(metricsResponse.data);
       } else {
-        // Mock data for now
+        // Set empty metrics if no data available
         setMetrics({
-          totalLikes: 21400,
-          totalComments: 3200,
-          totalShares: 1800,
-          averageEngagementRate: 4.5,
-          averageResponseTime: 2.5,
-          engagementByPlatform: [
-            { platform: 'Facebook', engagement: 12500, rate: 4.2 },
-            { platform: 'Instagram', engagement: 8900, rate: 5.8 },
-          ],
+          totalLikes: 0,
+          totalComments: 0,
+          totalShares: 0,
+          averageEngagementRate: 0,
+          averageResponseTime: 0,
+          engagementByPlatform: [],
         });
       }
     } catch (error) {
       console.error('Error fetching engagement data:', error);
+      // Set empty metrics on error
+      setMetrics({
+        totalLikes: 0,
+        totalComments: 0,
+        totalShares: 0,
+        averageEngagementRate: 0,
+        averageResponseTime: 0,
+        engagementByPlatform: [],
+      });
     } finally {
       setLoading(false);
     }
@@ -169,126 +161,92 @@ export default function EngagementMetricsPage() {
               title="Total Likes"
               value={metrics?.totalLikes.toLocaleString() || '0'}
               icon={Heart}
-              trend={0}
               delay={0.1}
             />
             <MetricCard
               title="Total Comments"
               value={metrics?.totalComments.toLocaleString() || '0'}
               icon={MessageCircle}
-              trend={0}
               delay={0.2}
             />
             <MetricCard
               title="Total Shares"
               value={metrics?.totalShares.toLocaleString() || '0'}
               icon={Share2}
-              trend={0}
               delay={0.3}
             />
             <MetricCard
               title="Avg Engagement Rate"
               value={`${metrics?.averageEngagementRate.toFixed(1) || '0'}%`}
               icon={TrendingUp}
-              trend={metrics?.averageEngagementRate || 0}
               delay={0.4}
             />
           </div>
 
-          {/* Engagement Trends Chart */}
+          {/* Engagement Breakdown Chart */}
           <motion.div
             className="mb-8"
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.5 }}
           >
-            <LineChart
-              data={engagementTrends.map(t => ({
-                date: new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                likes: t.likes,
-                comments: t.comments,
-                shares: t.shares,
-              }))}
-              dataKeys={[
-                { key: 'likes', name: 'Likes', color: '#ef4444' },
-                { key: 'comments', name: 'Comments', color: '#3b82f6' },
-                { key: 'shares', name: 'Shares', color: '#10b981' },
+            <BarChart
+              simpleData={[
+                {
+                  name: 'Likes',
+                  value: metrics?.totalLikes || 0,
+                  color: '#ef4444',
+                },
+                {
+                  name: 'Comments',
+                  value: metrics?.totalComments || 0,
+                  color: '#3b82f6',
+                },
+                {
+                  name: 'Shares',
+                  value: metrics?.totalShares || 0,
+                  color: '#10b981',
+                },
               ]}
-              title="Engagement Trends"
+              title="Total Engagement Breakdown"
             />
           </motion.div>
 
           {/* Engagement by Platform */}
-          {metrics?.engagementByPlatform && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-              <motion.div
-                className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: 0.6 }}
-              >
-                <h3 className="text-xl font-bold text-white mb-4">Engagement by Platform</h3>
-                <div className="space-y-4">
-                  {metrics.engagementByPlatform.map((platform, index) => (
-                    <div key={index}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-white font-medium">{platform.platform}</span>
-                        <div className="text-right">
-                          <div className="text-white font-bold">{platform.engagement.toLocaleString()}</div>
-                          <div className="text-sm text-white/60">{platform.rate.toFixed(1)}% rate</div>
-                        </div>
-                      </div>
-                      <div className="w-full bg-white/10 rounded-full h-2">
-                        <div
-                          className="bg-gradient-to-r from-primary-500 to-secondary-500 h-2 rounded-full transition-all"
-                          style={{ width: `${(platform.engagement / Math.max(...metrics.engagementByPlatform.map(p => p.engagement))) * 100}%` }}
-                        />
-                      </div>
+          {metrics?.engagementByPlatform && metrics.engagementByPlatform.length > 0 ? (
+            <motion.div
+              className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg mb-8"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.6 }}
+            >
+              <h3 className="text-xl font-bold text-white mb-4">Engagement by Platform</h3>
+              <div className="space-y-4">
+                {metrics.engagementByPlatform.map((platform, index) => (
+                  <div key={index} className="flex items-center justify-between py-2 border-b border-white/10 last:border-b-0">
+                    <span className="text-white font-medium">{platform.platform}</span>
+                    <div className="text-right">
+                      <div className="text-white font-bold">{platform.engagement.toLocaleString()}</div>
+                      <div className="text-sm text-white/60">{platform.rate.toFixed(1)}% rate</div>
                     </div>
-                  ))}
-                </div>
-              </motion.div>
-
-              {/* Response Time */}
-              <motion.div
-                className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: 0.7 }}
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <Clock className="w-6 h-6 text-primary-300" />
-                  <h3 className="text-xl font-bold text-white">Average Response Time</h3>
-                </div>
-                <div className="text-center py-8">
-                  <div className="text-5xl font-bold text-white mb-2">
-                    {metrics.averageResponseTime.toFixed(1)}
                   </div>
-                  <div className="text-white/70 text-lg">hours</div>
-                  <p className="text-white/60 text-sm mt-4">
-                    Average time to respond to comments and messages
-                  </p>
-                </div>
-              </motion.div>
-            </div>
+                ))}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg mb-8"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.6 }}
+            >
+              <h3 className="text-xl font-bold text-white mb-4">Engagement by Platform</h3>
+              <div className="text-center py-8 text-white/60">
+                <p>No engagement data available. Connect accounts and sync data to see engagement by platform.</p>
+              </div>
+            </motion.div>
           )}
 
-          {/* Engagement Rate Trend */}
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.8 }}
-          >
-            <LineChart
-              data={engagementTrends.map(t => ({
-                date: new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                engagementRate: t.engagementRate,
-              }))}
-              dataKey="engagementRate"
-              title="Engagement Rate Trend"
-              color="#8b5cf6"
-            />
-          </motion.div>
         </div>
       </div>
     </ProtectedRoute>

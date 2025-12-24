@@ -8,6 +8,9 @@ const router = Router();
 // All analytics routes require authentication
 router.use(authenticate);
 
+// Generate PDF report (no cache for file downloads - must be before cache middleware)
+router.get('/generate-pdf', (req, res) => analyticsController.generatePDF(req, res));
+
 // Apply caching to GET routes (5 minutes TTL)
 router.use(cacheMiddleware(5 * 60 * 1000));
 
@@ -19,6 +22,9 @@ router.get('/followers/trends', (req, res) => analyticsController.getFollowerTre
 
 // Engagement trends
 router.get('/engagement/trends', (req, res) => analyticsController.getEngagementTrends(req, res));
+
+// Engagement metrics
+router.get('/engagement/metrics', (req, res) => analyticsController.getEngagementMetrics(req, res));
 
 // Top posts
 router.get('/posts/top', (req, res) => analyticsController.getTopPosts(req, res));

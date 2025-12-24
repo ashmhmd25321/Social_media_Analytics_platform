@@ -49,23 +49,37 @@ export default function LineChart({
             stroke="rgba(255,255,255,0.7)"
             style={{ fontSize: '12px' }}
             tickFormatter={(value) => {
-              // Handle both date strings (YYYY-MM-DD) and already formatted strings
+              // Handle different date formats: YYYY-MM-DD, YYYY-MM, YYYY
               if (!value) return '';
               
               // If it's already a formatted string (like "Dec 20"), return as-is
-              if (typeof value === 'string' && !value.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              if (typeof value !== 'string') {
+                return String(value);
+              }
+              
+              // Handle year format (YYYY)
+              if (/^\d{4}$/.test(value)) {
                 return value;
               }
               
-              // Parse date string (YYYY-MM-DD format)
-              const date = new Date(value);
-              
-              // Validate date is valid
-              if (isNaN(date.getTime())) {
-                return value; // Return original if parsing fails
+              // Handle month format (YYYY-MM)
+              if (/^\d{4}-\d{2}$/.test(value)) {
+                const [year, month] = value.split('-');
+                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                return `${monthNames[parseInt(month) - 1]} ${year}`;
               }
               
-              return `${date.getMonth() + 1}/${date.getDate()}`;
+              // Handle day format (YYYY-MM-DD)
+              if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                const date = new Date(value);
+                if (isNaN(date.getTime())) {
+                  return value; // Return original if parsing fails
+                }
+                return `${date.getMonth() + 1}/${date.getDate()}`;
+              }
+              
+              // Return as-is if format doesn't match
+              return value;
             }}
           />
           <YAxis stroke="rgba(255,255,255,0.7)" style={{ fontSize: '12px' }} />

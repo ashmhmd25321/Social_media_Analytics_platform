@@ -84,9 +84,17 @@ class ReportGenerationService {
       (new Date(report.date_range_end).getTime() - new Date(report.date_range_start).getTime()) / (1000 * 60 * 60 * 24)
     );
 
+    // Determine view based on date range: if more than 365 days, use year view; if more than 30 days, use month view; otherwise day view
+    let view: 'day' | 'month' | 'year' = 'day';
+    if (days > 365) {
+      view = 'year';
+    } else if (days > 30) {
+      view = 'month';
+    }
+
     const [overview, followerTrends, engagementTrends, platformComparison, topPosts] = await Promise.all([
       analyticsService.getOverviewMetrics(userId),
-      analyticsService.getFollowerTrends(userId, days),
+      analyticsService.getFollowerTrends(userId, view),
       analyticsService.getEngagementTrends(userId, days),
       analyticsService.getPlatformComparison(userId),
       analyticsService.getTopPosts(userId, 10),
