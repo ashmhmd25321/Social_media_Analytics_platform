@@ -5,7 +5,7 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
 import { motion } from 'framer-motion';
-import { FileText, TrendingUp, Image, Video, File, ArrowLeft, Download, ExternalLink } from 'lucide-react';
+import { FileText, TrendingUp, Image, Video, File, ArrowLeft, Download, ExternalLink, Facebook, Instagram, Youtube } from 'lucide-react';
 import Link from 'next/link';
 import { MetricCard } from '@/components/analytics';
 import { usePageRefresh } from '@/hooks/usePageRefresh';
@@ -34,7 +34,7 @@ interface ContentPerformance {
   averageEngagementRate: number;
   topPosts: TopPost[];
   contentTypeBreakdown: ContentTypeMetrics;
-  bestPostingDays: Array<{ day: string; engagement: number }>;
+  postsByDay: Array<{ date: string; count: number }>;
 }
 
 export default function ContentPerformancePage() {
@@ -62,7 +62,7 @@ export default function ContentPerformancePage() {
           averageEngagementRate: performanceData.averageEngagementRate,
           topPosts: topPosts,
           contentTypeBreakdown: performanceData.contentTypeBreakdown,
-          bestPostingDays: performanceData.bestPostingDays,
+          postsByDay: performanceData.postsByDay || [],
         });
       } else {
         // If no data available, set empty state
@@ -76,15 +76,7 @@ export default function ContentPerformancePage() {
             video: 0,
             carousel: 0,
           },
-          bestPostingDays: [
-            { day: 'Monday', engagement: 0 },
-            { day: 'Tuesday', engagement: 0 },
-            { day: 'Wednesday', engagement: 0 },
-            { day: 'Thursday', engagement: 0 },
-            { day: 'Friday', engagement: 0 },
-            { day: 'Saturday', engagement: 0 },
-            { day: 'Sunday', engagement: 0 },
-          ],
+          postsByDay: [],
         });
       }
     } catch (error) {
@@ -100,15 +92,7 @@ export default function ContentPerformancePage() {
           video: 0,
           carousel: 0,
         },
-        bestPostingDays: [
-          { day: 'Monday', engagement: 0 },
-          { day: 'Tuesday', engagement: 0 },
-          { day: 'Wednesday', engagement: 0 },
-          { day: 'Thursday', engagement: 0 },
-          { day: 'Friday', engagement: 0 },
-          { day: 'Saturday', engagement: 0 },
-          { day: 'Sunday', engagement: 0 },
-        ],
+        postsByDay: [],
       });
     } finally {
       setLoading(false);
@@ -133,6 +117,34 @@ export default function ContentPerformancePage() {
         return File;
       default:
         return FileText;
+    }
+  };
+
+  const getPlatformIcon = (platform: string) => {
+    const platformLower = platform.toLowerCase();
+    switch (platformLower) {
+      case 'facebook':
+        return Facebook;
+      case 'instagram':
+        return Instagram;
+      case 'youtube':
+        return Youtube;
+      default:
+        return FileText;
+    }
+  };
+
+  const getPlatformColor = (platform: string) => {
+    const platformLower = platform.toLowerCase();
+    switch (platformLower) {
+      case 'facebook':
+        return '#1877F2';
+      case 'instagram':
+        return '#E4405F';
+      case 'youtube':
+        return '#FF0000';
+      default:
+        return '#8b5cf6';
     }
   };
 
@@ -270,47 +282,62 @@ export default function ContentPerformancePage() {
             <h3 className="text-xl font-bold text-white mb-4">Top Performing Posts</h3>
             <div className="space-y-4">
               {performance?.topPosts.length > 0 ? (
-                performance.topPosts.map((post, index) => (
-                  <div
-                    key={post.id}
-                    className="bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-all"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="px-2 py-1 bg-primary-500/20 text-primary-300 rounded text-xs font-medium">
-                            #{index + 1}
-                          </span>
-                          <span className="px-2 py-1 bg-white/10 text-white/70 rounded text-xs capitalize">
-                            {post.platform}
-                          </span>
-                          <span className="text-xs text-white/60">
-                            {new Date(post.published_at).toLocaleDateString()}
-                          </span>
+                performance.topPosts.map((post, index) => {
+                  const PlatformIcon = getPlatformIcon(post.platform);
+                  const platformColor = getPlatformColor(post.platform);
+                  
+                  return (
+                    <div
+                      key={post.id}
+                      className="bg-gradient-to-br from-white/15 to-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10 hover:bg-white/20 transition-all shadow-lg"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-3">
+                            {/* Rank Badge - Better Design */}
+                            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 text-white font-bold text-sm shadow-xl ring-2 ring-white/20">
+                              {index + 1}
+                            </div>
+                            
+                            {/* Platform Icon */}
+                            <div 
+                              className="flex items-center justify-center w-8 h-8 rounded-lg backdrop-blur-sm border border-white/10"
+                              style={{ backgroundColor: `${platformColor}40` }}
+                            >
+                              <PlatformIcon 
+                                className="w-5 h-5 drop-shadow-lg" 
+                                style={{ color: platformColor }}
+                              />
+                            </div>
+                            
+                            <span className="text-xs text-white/60">
+                              {new Date(post.published_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p className="text-white/90 mb-3 line-clamp-2">{post.content || 'No content'}</p>
+                          <div className="flex items-center gap-4 text-sm text-white/70">
+                            <span>❤️ {post.likes.toLocaleString()}</span>
+                            <span>💬 {post.comments.toLocaleString()}</span>
+                            <span>🔁 {post.shares.toLocaleString()}</span>
+                            <span className="text-primary-300 font-medium">
+                              {post.engagement_rate.toFixed(1)}% engagement
+                            </span>
+                          </div>
                         </div>
-                        <p className="text-white/90 mb-3 line-clamp-2">{post.content || 'No content'}</p>
-                        <div className="flex items-center gap-4 text-sm text-white/70">
-                          <span>❤️ {post.likes.toLocaleString()}</span>
-                          <span>💬 {post.comments.toLocaleString()}</span>
-                          <span>🔁 {post.shares.toLocaleString()}</span>
-                          <span className="text-primary-300 font-medium">
-                            {post.engagement_rate.toFixed(1)}% engagement
-                          </span>
-                        </div>
+                        {post.permalink && (
+                          <a
+                            href={post.permalink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-4 p-2 hover:bg-white/10 rounded-lg transition-colors"
+                          >
+                            <ExternalLink className="w-5 h-5 text-white/70" />
+                          </a>
+                        )}
                       </div>
-                      {post.permalink && (
-                        <a
-                          href={post.permalink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="ml-4 p-2 hover:bg-white/10 rounded-lg transition-colors"
-                        >
-                          <ExternalLink className="w-5 h-5 text-white/70" />
-                        </a>
-                      )}
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-center py-8 text-white/60">
                   <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -320,26 +347,54 @@ export default function ContentPerformancePage() {
             </div>
           </motion.div>
 
-          {/* Best Posting Days */}
-          {performance?.bestPostingDays && (
+          {/* Daily Post Activity */}
+          {performance?.postsByDay && performance.postsByDay.length > 0 ? (
             <motion.div
               className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.6 }}
             >
-              <h3 className="text-xl font-bold text-white mb-4">Best Posting Days</h3>
-              <div className="space-y-2">
-                {performance.bestPostingDays.map((day, index) => {
-                  const engagement = Number(day.engagement) || 0;
+              <h3 className="text-xl font-bold text-white mb-4">Daily Post Activity</h3>
+              <p className="text-white/60 text-sm mb-4">Number of posts published each day</p>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {performance.postsByDay.map((day, index) => {
+                  // Parse date string (YYYY-MM-DD) as local date to avoid timezone issues
+                  const [year, month, dayNum] = day.date.split('-').map(Number);
+                  const postDate = new Date(year, month - 1, dayNum); // month is 0-indexed
+                  const formattedDate = postDate.toLocaleDateString('en-US', { 
+                    weekday: 'short', 
+                    month: 'short', 
+                    day: 'numeric',
+                    year: 'numeric'
+                  });
                   
                   return (
-                    <div key={index} className="flex items-center justify-between py-2 border-b border-white/10 last:border-b-0">
-                      <span className="text-white font-medium">{day.day}</span>
-                      <span className="text-white/70 font-semibold">{engagement.toLocaleString()} avg engagement</span>
+                    <div key={index} className="flex items-center justify-between py-3 px-4 bg-gradient-to-br from-white/15 to-white/5 backdrop-blur-sm rounded-lg border border-white/10 hover:bg-white/20 transition-all">
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-primary-500/30 to-secondary-500/30 text-primary-300 font-bold text-sm border border-primary-500/20">
+                          {day.count}
+                        </div>
+                        <span className="text-white font-medium">{formattedDate}</span>
+                      </div>
+                      <span className="text-white/70 text-sm font-medium">
+                        {day.count === 1 ? 'post' : 'posts'}
+                      </span>
                     </div>
                   );
                 })}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.6 }}
+            >
+              <h3 className="text-xl font-bold text-white mb-4">Daily Post Activity</h3>
+              <div className="text-center py-8 text-white/60">
+                <p>No posts found in the selected time range.</p>
               </div>
             </motion.div>
           )}

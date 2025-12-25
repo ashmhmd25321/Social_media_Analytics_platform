@@ -331,43 +331,241 @@ class AnalyticsService {
 
   /**
    * Get engagement trends over time
+   * Groups engagement by the actual post published date (not when data was synced)
    */
   async getEngagementTrends(
     userId: number,
     days: number = 30
   ): Promise<EngagementTrend[]> {
     try {
-      // Use post_engagement_metrics instead of engagement_snapshots for more reliable data
-      const [rows] = await pool.execute<RowDataPacket[]>(
+      // Get posts with engagement metrics, deduplicate by platform_post_id
+      // Use DATE_FORMAT to get date as string to avoid timezone issues
+      // Fetch all posts with engagement, deduplicate in code, then group by date
+      const [allPostRows] = await pool.execute<RowDataPacket[]>(
         `SELECT 
-           DATE(sp.published_at) as date,
-           COALESCE(SUM(pem.likes_count), 0) as likes,
-           COALESCE(SUM(pem.comments_count), 0) as comments,
-           COALESCE(SUM(pem.shares_count), 0) as shares,
-           COALESCE(AVG(pem.engagement_rate), 0) as engagement_rate
+           sp.id,
+           sp.platform_post_id,
+           DATE_FORMAT(sp.published_at, '%Y-%m-%d') as published_date,
+           sp.platform_type,
+           sp.updated_at_local,
+           COALESCE(pem.likes_count, 0) as likes_count,
+           COALESCE(pem.comments_count, 0) as comments_count,
+           COALESCE(pem.shares_count, 0) as shares_count,
+           COALESCE(pem.engagement_rate, 0) as engagement_rate
          FROM social_posts sp
          INNER JOIN user_social_accounts usa ON sp.account_id = usa.id
          LEFT JOIN post_engagement_metrics pem ON sp.id = pem.post_id
          WHERE sp.user_id = ?
            AND sp.is_deleted = FALSE
+           AND sp.published_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+           AND sp.published_at IS NOT NULL
            AND usa.is_active = TRUE
            AND usa.account_status = 'connected'
-           AND sp.published_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-         GROUP BY DATE(sp.published_at)
-         ORDER BY DATE(sp.published_at) ASC`,
+         ORDER BY sp.published_at DESC`,
         [userId, days]
       );
 
-      return rows.map(row => ({
-        date: row.date ? (row.date instanceof Date ? row.date.toISOString().split('T')[0] : String(row.date)) : new Date().toISOString().split('T')[0],
-        likes: Number(row.likes) || 0,
-        comments: Number(row.comments) || 0,
-        shares: Number(row.shares) || 0,
-        engagementRate: parseFloat(String(row.engagement_rate || '0')),
-      }));
+      // Deduplicate in code: for each platform_post_id, keep the one with highest priority
+      const platformPriority: Record<string, number> = {
+        'instagram': 3,
+        'youtube': 2,
+        'facebook': 1,
+      };
+
+      const postMap = new Map<string, { 
+        published_date: string; 
+        priority: number; 
+        updated_at: Date;
+        likes_count: number;
+        comments_count: number;
+        shares_count: number;
+        engagement_rate: number;
+      }>();
+      
+      for (const row of allPostRows) {
+        const platformPostId = row.platform_post_id;
+        const platform = (row.platform_type || 'unknown').toLowerCase();
+        const priority = platformPriority[platform] || 0;
+        
+        // Use the date string directly from SQL (YYYY-MM-DD format, no timezone issues)
+        const publishedDateStr = row.published_date; // Already formatted as YYYY-MM-DD from SQL
+        if (!publishedDateStr) {
+          continue; // Skip posts without published_at
+        }
+        
+        const updatedAt = row.updated_at_local ? new Date(row.updated_at_local) : new Date(0);
+        const likesCount = Number(row.likes_count) || 0;
+        const commentsCount = Number(row.comments_count) || 0;
+        const sharesCount = Number(row.shares_count) || 0;
+        const engagementRate = parseFloat(String(row.engagement_rate || '0'));
+
+        const existing = postMap.get(platformPostId);
+        if (!existing) {
+          postMap.set(platformPostId, { 
+            published_date: publishedDateStr, 
+            priority, 
+            updated_at: updatedAt,
+            likes_count: likesCount,
+            comments_count: commentsCount,
+            shares_count: sharesCount,
+            engagement_rate: engagementRate,
+          });
+        } else {
+          // Keep the post with higher priority, or if same priority, keep the most recently updated
+          if (priority > existing.priority || 
+              (priority === existing.priority && updatedAt > existing.updated_at)) {
+            postMap.set(platformPostId, { 
+              published_date: publishedDateStr, 
+              priority, 
+              updated_at: updatedAt,
+              likes_count: likesCount,
+              comments_count: commentsCount,
+              shares_count: sharesCount,
+              engagement_rate: engagementRate,
+            });
+          }
+        }
+      }
+
+      // Group by date and sum engagement metrics
+      const dateMap = new Map<string, { 
+        likes: number; 
+        comments: number; 
+        shares: number; 
+        engagement_rates: number[];
+      }>();
+      
+      for (const { published_date, likes_count, comments_count, shares_count, engagement_rate } of postMap.values()) {
+        const existing = dateMap.get(published_date);
+        if (!existing) {
+          dateMap.set(published_date, {
+            likes: likes_count,
+            comments: comments_count,
+            shares: shares_count,
+            engagement_rates: engagement_rate > 0 ? [engagement_rate] : [],
+          });
+        } else {
+          existing.likes += likes_count;
+          existing.comments += comments_count;
+          existing.shares += shares_count;
+          if (engagement_rate > 0) {
+            existing.engagement_rates.push(engagement_rate);
+          }
+        }
+      }
+
+      // Convert to array and calculate average engagement rate
+      return Array.from(dateMap.entries())
+        .map(([date, metrics]) => {
+          const avgEngagementRate = metrics.engagement_rates.length > 0
+            ? metrics.engagement_rates.reduce((sum, rate) => sum + rate, 0) / metrics.engagement_rates.length
+            : 0;
+          
+          return {
+            date,
+            likes: metrics.likes,
+            comments: metrics.comments,
+            shares: metrics.shares,
+            engagementRate: avgEngagementRate,
+          };
+        })
+        .sort((a, b) => a.date.localeCompare(b.date)); // Sort ascending by date
     } catch (error) {
       console.error('Error fetching engagement trends:', error);
       // Return empty array if there's an error or no data
+      return [];
+    }
+  }
+
+  /**
+   * Get posts published over time (by actual post published dates)
+   * This replaces follower growth chart with real data
+   */
+  async getPostsOverTime(
+    userId: number,
+    days: number = 30
+  ): Promise<Array<{ date: string; count: number }>> {
+    try {
+      // Get posts by actual date from social_posts table
+      // Deduplicate by platform_post_id: prefer Instagram > YouTube > Facebook, then most recent
+      // Fetch all posts, deduplicate in code, then group by date
+      // Use DATE_FORMAT to get date as string to avoid timezone issues
+      const [allPostRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT 
+           sp.id,
+           sp.platform_post_id,
+           DATE_FORMAT(sp.published_at, '%Y-%m-%d') as published_date,
+           sp.platform_type,
+           sp.updated_at_local
+         FROM social_posts sp
+         INNER JOIN user_social_accounts usa ON sp.account_id = usa.id
+         WHERE sp.user_id = ?
+           AND sp.is_deleted = FALSE
+           AND sp.published_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+           AND sp.published_at IS NOT NULL
+           AND usa.is_active = TRUE
+           AND usa.account_status = 'connected'
+         ORDER BY sp.published_at DESC`,
+        [userId, days]
+      );
+
+      // Deduplicate in code: for each platform_post_id, keep the one with highest priority
+      const platformPriority: Record<string, number> = {
+        'instagram': 3,
+        'youtube': 2,
+        'facebook': 1,
+      };
+
+      const postMap = new Map<string, { published_date: string; priority: number; updated_at: Date }>();
+      
+      for (const row of allPostRows) {
+        const platformPostId = row.platform_post_id;
+        const platform = (row.platform_type || 'unknown').toLowerCase();
+        const priority = platformPriority[platform] || 0;
+        
+        // Use the date string directly from SQL (YYYY-MM-DD format, no timezone issues)
+        const publishedDateStr = row.published_date; // Already formatted as YYYY-MM-DD from SQL
+        if (!publishedDateStr) {
+          continue; // Skip posts without published_at
+        }
+        
+        const updatedAt = row.updated_at_local ? new Date(row.updated_at_local) : new Date(0);
+
+        const existing = postMap.get(platformPostId);
+        if (!existing) {
+          postMap.set(platformPostId, { 
+            published_date: publishedDateStr, 
+            priority, 
+            updated_at: updatedAt
+          });
+        } else {
+          // Keep the post with higher priority, or if same priority, keep the most recently updated
+          if (priority > existing.priority || 
+              (priority === existing.priority && updatedAt > existing.updated_at)) {
+            postMap.set(platformPostId, { 
+              published_date: publishedDateStr, 
+              priority, 
+              updated_at: updatedAt
+            });
+          }
+        }
+      }
+
+      // Group by date and count - use date string directly from SQL (no timezone conversion)
+      const dateMap = new Map<string, number>();
+      for (const { published_date } of postMap.values()) {
+        dateMap.set(published_date, (dateMap.get(published_date) || 0) + 1);
+      }
+
+      // Convert to array and sort
+      return Array.from(dateMap.entries())
+        .map(([post_date, post_count]) => ({ 
+          date: post_date, 
+          count: post_count 
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date)); // Sort ascending by date
+    } catch (error) {
+      console.error('Error fetching posts over time:', error);
       return [];
     }
   }
@@ -423,25 +621,27 @@ class AnalyticsService {
     const totalShares = Number(totalRows[0]?.total_shares) || 0;
     const averageEngagementRate = parseFloat(String(totalRows[0]?.avg_engagement_rate || '0'));
 
-    // Get engagement by platform
+    // Get engagement by platform - show ALL connected platforms, even if they have 0 engagement
+    // First, get all connected platforms
     const [platformRows] = await pool.execute<RowDataPacket[]>(
       `SELECT 
          platform.name as platform,
+         platform.id as platform_id,
          COALESCE(SUM(pem.likes_count + pem.comments_count + pem.shares_count), 0) as total_engagement,
-         COALESCE(AVG(pem.engagement_rate), 0) as avg_rate
-       FROM social_posts posts
-       INNER JOIN user_social_accounts usa ON posts.account_id = usa.id
+         COALESCE(AVG(pem.engagement_rate), 0) as avg_rate,
+         COUNT(DISTINCT posts.id) as post_count
+       FROM user_social_accounts usa
        INNER JOIN social_platforms platform ON usa.platform_id = platform.id
-       LEFT JOIN post_engagement_metrics pem ON posts.id = pem.post_id
-       WHERE posts.user_id = ?
+       LEFT JOIN social_posts posts ON usa.id = posts.account_id 
          AND posts.is_deleted = FALSE
+         AND posts.published_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+       LEFT JOIN post_engagement_metrics pem ON posts.id = pem.post_id
+       WHERE usa.user_id = ?
          AND usa.is_active = TRUE
          AND usa.account_status = 'connected'
-         AND posts.published_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
        GROUP BY platform.name, platform.id
-       HAVING total_engagement > 0
        ORDER BY total_engagement DESC`,
-      [userId, days]
+      [days, userId]
     );
 
     const engagementByPlatform = platformRows.map(row => ({
@@ -472,13 +672,16 @@ class AnalyticsService {
     limit: number = 10,
     days?: number
   ): Promise<TopPost[]> {
+    // Fetch all posts first, then deduplicate in code
     const query = days
       ? `SELECT 
            sp.id,
            sp.content,
            sp.platform_type as platform,
+           sp.platform_post_id,
            sp.published_at,
            sp.permalink,
+           sp.updated_at_local,
            pem.likes_count as likes,
            pem.comments_count as comments,
            pem.shares_count as shares,
@@ -497,8 +700,10 @@ class AnalyticsService {
            sp.id,
            sp.content,
            sp.platform_type as platform,
+           sp.platform_post_id,
            sp.published_at,
            sp.permalink,
+           sp.updated_at_local,
            pem.likes_count as likes,
            pem.comments_count as comments,
            pem.shares_count as shares,
@@ -513,20 +718,64 @@ class AnalyticsService {
          ORDER BY pem.engagement_rate DESC, pem.likes_count DESC
          LIMIT ?`;
 
-    const params = days ? [userId, days, limit] : [userId, limit];
+    const params = days ? [userId, days, limit * 2] : [userId, limit * 2]; // Fetch more to account for duplicates
     const [rows] = await pool.execute<RowDataPacket[]>(query, params);
 
-    return rows.map(row => ({
-      id: row.id,
-      content: row.content || '',
-      platform: row.platform || 'unknown',
-      published_at: row.published_at,
-      likes: row.likes || 0,
-      comments: row.comments || 0,
-      shares: row.shares || 0,
-      engagement_rate: parseFloat(row.engagement_rate || '0'),
-      permalink: row.permalink || undefined,
-    }));
+    // Deduplicate posts: for each platform_post_id, keep the one with:
+    // 1. Highest priority platform_type (instagram > youtube > facebook)
+    // 2. Most recently updated if same platform_type
+    const postMap = new Map<string, TopPost & { priority: number; updated_at: Date }>();
+    
+    const platformPriority: Record<string, number> = {
+      'instagram': 3,
+      'youtube': 2,
+      'facebook': 1,
+    };
+
+    for (const row of rows) {
+      const platformPostId = row.platform_post_id;
+      const platform = (row.platform || 'unknown').toLowerCase();
+      const priority = platformPriority[platform] || 0;
+      const updatedAt = row.updated_at_local ? new Date(row.updated_at_local) : new Date(0);
+
+      const post: TopPost & { priority: number; updated_at: Date } = {
+        id: row.id,
+        content: row.content || '',
+        platform: row.platform || 'unknown',
+        published_at: row.published_at,
+        likes: row.likes || 0,
+        comments: row.comments || 0,
+        shares: row.shares || 0,
+        engagement_rate: parseFloat(row.engagement_rate || '0'),
+        permalink: row.permalink || undefined,
+        priority,
+        updated_at: updatedAt,
+      };
+
+      const existing = postMap.get(platformPostId);
+      if (!existing) {
+        postMap.set(platformPostId, post);
+      } else {
+        // Keep the post with higher priority, or if same priority, keep the most recently updated
+        if (priority > existing.priority || 
+            (priority === existing.priority && updatedAt > existing.updated_at)) {
+          postMap.set(platformPostId, post);
+        }
+      }
+    }
+
+    // Convert map to array, sort by engagement, and limit
+    const results = Array.from(postMap.values())
+      .sort((a, b) => {
+        if (b.engagement_rate !== a.engagement_rate) {
+          return b.engagement_rate - a.engagement_rate;
+        }
+        return b.likes - a.likes;
+      })
+      .slice(0, limit)
+      .map(({ priority, updated_at, ...post }) => post); // Remove helper fields
+
+    return results;
   }
 
   /**
@@ -540,31 +789,144 @@ class AnalyticsService {
       return [];
     }
 
-    const [rows] = await pool.execute<RowDataPacket[]>(
+    // Get follower counts per platform
+    const [followerRows] = await pool.execute<RowDataPacket[]>(
       `SELECT 
          platform_info.name as platform,
-         COALESCE(MAX(fm.follower_count), 0) as followers,
-         COUNT(DISTINCT posts.id) as posts,
-         COALESCE(SUM(pem.likes_count + pem.comments_count + pem.shares_count), 0) as engagement,
-         COALESCE(AVG(pem.engagement_rate), 0) as engagement_rate
+         COALESCE(MAX(fm.follower_count), 0) as followers
        FROM user_social_accounts usa
        INNER JOIN social_platforms platform_info ON usa.platform_id = platform_info.id
        LEFT JOIN follower_metrics fm ON usa.id = fm.account_id
-       LEFT JOIN social_posts posts ON usa.id = posts.account_id AND posts.is_deleted = FALSE
-       LEFT JOIN post_engagement_metrics pem ON posts.id = pem.post_id
        WHERE usa.user_id = ? AND usa.is_active = TRUE
-       GROUP BY platform_info.name, platform_info.id
-       ORDER BY followers DESC`,
+       GROUP BY platform_info.name, platform_info.id`,
       [userId]
     );
 
-    return rows.map(row => ({
-      platform: row.platform || 'unknown',
-      followers: row.followers || 0,
-      posts: row.posts || 0,
-      engagement: row.engagement || 0,
-      engagementRate: parseFloat(row.engagement_rate || '0'),
-    }));
+    // Get all posts with engagement metrics, then deduplicate
+    const [postRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT 
+         sp.id,
+         sp.platform_post_id,
+         sp.platform_type,
+         sp.updated_at_local,
+         platform_info.name as platform_name,
+         COALESCE(pem.likes_count, 0) as likes_count,
+         COALESCE(pem.comments_count, 0) as comments_count,
+         COALESCE(pem.shares_count, 0) as shares_count,
+         COALESCE(pem.engagement_rate, 0) as engagement_rate
+       FROM social_posts sp
+       INNER JOIN user_social_accounts usa ON sp.account_id = usa.id
+       INNER JOIN social_platforms platform_info ON usa.platform_id = platform_info.id
+       LEFT JOIN post_engagement_metrics pem ON sp.id = pem.post_id
+       WHERE sp.user_id = ?
+         AND sp.is_deleted = FALSE
+         AND usa.is_active = TRUE
+         AND usa.account_status = 'connected'`,
+      [userId]
+    );
+
+    // Deduplicate posts: for each platform_post_id, keep the one with highest priority
+    const platformPriority: Record<string, number> = {
+      'instagram': 3,
+      'youtube': 2,
+      'facebook': 1,
+    };
+
+    const postMap = new Map<string, {
+      platform: string;
+      likes: number;
+      comments: number;
+      shares: number;
+      engagement_rate: number;
+      priority: number;
+      updated_at: Date;
+    }>();
+
+    for (const row of postRows) {
+      const platformPostId = row.platform_post_id;
+      const platform = (row.platform_type || 'unknown').toLowerCase();
+      const priority = platformPriority[platform] || 0;
+      const updatedAt = row.updated_at_local ? new Date(row.updated_at_local) : new Date(0);
+      const platformName = row.platform_name || 'unknown';
+
+      const existing = postMap.get(platformPostId);
+      if (!existing) {
+        postMap.set(platformPostId, {
+          platform: platformName,
+          likes: Number(row.likes_count) || 0,
+          comments: Number(row.comments_count) || 0,
+          shares: Number(row.shares_count) || 0,
+          engagement_rate: parseFloat(String(row.engagement_rate || '0')),
+          priority,
+          updated_at: updatedAt,
+        });
+      } else {
+        // Keep the post with higher priority, or if same priority, keep the most recently updated
+        if (priority > existing.priority || 
+            (priority === existing.priority && updatedAt > existing.updated_at)) {
+          postMap.set(platformPostId, {
+            platform: platformName,
+            likes: Number(row.likes_count) || 0,
+            comments: Number(row.comments_count) || 0,
+            shares: Number(row.shares_count) || 0,
+            engagement_rate: parseFloat(String(row.engagement_rate || '0')),
+            priority,
+            updated_at: updatedAt,
+          });
+        }
+      }
+    }
+
+    // Group by platform and calculate metrics
+    const platformMap = new Map<string, {
+      followers: number;
+      posts: number;
+      engagement: number;
+      engagement_rates: number[];
+    }>();
+
+    // Initialize with follower counts
+    for (const row of followerRows) {
+      platformMap.set(row.platform, {
+        followers: Number(row.followers) || 0,
+        posts: 0,
+        engagement: 0,
+        engagement_rates: [],
+      });
+    }
+
+    // Count posts and sum engagement by platform
+    for (const { platform, likes, comments, shares, engagement_rate } of postMap.values()) {
+      const existing = platformMap.get(platform);
+      if (existing) {
+        existing.posts += 1;
+        existing.engagement += likes + comments + shares;
+        if (engagement_rate > 0) {
+          existing.engagement_rates.push(engagement_rate);
+        }
+      } else {
+        // Platform not in follower rows, but has posts - add it
+        platformMap.set(platform, {
+          followers: 0,
+          posts: 1,
+          engagement: likes + comments + shares,
+          engagement_rates: engagement_rate > 0 ? [engagement_rate] : [],
+        });
+      }
+    }
+
+    // Convert to array and calculate average engagement rate
+    return Array.from(platformMap.entries())
+      .map(([platform, metrics]) => ({
+        platform,
+        followers: metrics.followers,
+        posts: metrics.posts,
+        engagement: metrics.engagement,
+        engagementRate: metrics.engagement_rates.length > 0
+          ? metrics.engagement_rates.reduce((sum, rate) => sum + rate, 0) / metrics.engagement_rates.length
+          : 0,
+      }))
+      .sort((a, b) => b.followers - a.followers);
   }
 
   /**
@@ -806,7 +1168,7 @@ class AnalyticsService {
       video: number;
       carousel: number;
     };
-    bestPostingDays: Array<{ day: string; engagement: number }>;
+    postsByDay: Array<{ date: string; count: number }>;
   }> {
     // Get total posts count
     const [postCountRows] = await pool.execute<RowDataPacket[]>(
@@ -840,56 +1202,117 @@ class AnalyticsService {
     // Get content type breakdown (filtered by time range)
     const contentTypeBreakdown = await this.getContentTypeBreakdown(userId, days);
 
-    // Get best posting days (by day of week)
-    const [dayRows] = await pool.execute<RowDataPacket[]>(
+    // Get posts by actual date from social_posts table
+    // Deduplicate by platform_post_id: prefer Instagram > YouTube > Facebook, then most recent
+    // Fetch all posts, deduplicate in code, then group by date
+    // Use DATE_FORMAT to get date as string to avoid timezone issues
+    const [allPostRows] = await pool.execute<RowDataPacket[]>(
       `SELECT 
-         DAYNAME(sp.published_at) as day_name,
-         AVG(COALESCE(pem.likes_count, 0) + COALESCE(pem.comments_count, 0) + COALESCE(pem.shares_count, 0)) as avg_engagement
+         sp.id,
+         sp.platform_post_id,
+         DATE_FORMAT(sp.published_at, '%Y-%m-%d') as published_date,
+         sp.published_at as published_at_full,
+         sp.platform_type,
+         sp.updated_at_local
        FROM social_posts sp
        INNER JOIN user_social_accounts usa ON sp.account_id = usa.id
-       LEFT JOIN post_engagement_metrics pem ON sp.id = pem.post_id
        WHERE sp.user_id = ?
          AND sp.is_deleted = FALSE
          AND sp.published_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
          AND sp.published_at IS NOT NULL
          AND usa.is_active = TRUE
          AND usa.account_status = 'connected'
-       GROUP BY DAYNAME(sp.published_at)
-       ORDER BY 
-         CASE DAYNAME(sp.published_at)
-           WHEN 'Monday' THEN 1
-           WHEN 'Tuesday' THEN 2
-           WHEN 'Wednesday' THEN 3
-           WHEN 'Thursday' THEN 4
-           WHEN 'Friday' THEN 5
-           WHEN 'Saturday' THEN 6
-           WHEN 'Sunday' THEN 7
-         END`,
+       ORDER BY sp.published_at DESC`,
       [userId, days]
     );
 
-    // Initialize all days with 0 engagement
-    const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    const bestPostingDays = dayNames.map(day => ({
-      day,
-      engagement: 0,
-    }));
+    // Deduplicate in code: for each platform_post_id, keep the one with highest priority
+    const platformPriority: Record<string, number> = {
+      'instagram': 3,
+      'youtube': 2,
+      'facebook': 1,
+    };
 
-    // Fill in actual data
-    dayRows.forEach(row => {
-      const dayIndex = dayNames.indexOf(row.day_name);
-      if (dayIndex !== -1) {
-        // Ensure engagement is a number
-        const avgEngagement = parseFloat(row.avg_engagement) || 0;
-        bestPostingDays[dayIndex].engagement = Math.round(avgEngagement);
+    const postMap = new Map<string, { published_date: string; priority: number; updated_at: Date; id: number; platform: string }>();
+    
+    console.log(`[getContentPerformance] Fetched ${allPostRows.length} posts from database`);
+    
+    for (const row of allPostRows) {
+      const platformPostId = row.platform_post_id;
+      const platform = (row.platform_type || 'unknown').toLowerCase();
+      const priority = platformPriority[platform] || 0;
+      
+      // Use the date string directly from SQL (YYYY-MM-DD format, no timezone issues)
+      const publishedDateStr = row.published_date; // Already formatted as YYYY-MM-DD from SQL
+      if (!publishedDateStr) {
+        console.warn(`[getContentPerformance] Post ${row.id} has no published_date, skipping`);
+        continue; // Skip posts without published_at
       }
+      
+      const updatedAt = row.updated_at_local ? new Date(row.updated_at_local) : new Date(0);
+
+      const existing = postMap.get(platformPostId);
+      if (!existing) {
+        postMap.set(platformPostId, { 
+          published_date: publishedDateStr, 
+          priority, 
+          updated_at: updatedAt,
+          id: row.id,
+          platform: platform
+        });
+      } else {
+        // Keep the post with higher priority, or if same priority, keep the most recently updated
+        if (priority > existing.priority || 
+            (priority === existing.priority && updatedAt > existing.updated_at)) {
+          postMap.set(platformPostId, { 
+            published_date: publishedDateStr, 
+            priority, 
+            updated_at: updatedAt,
+            id: row.id,
+            platform: platform
+          });
+        }
+      }
+    }
+
+    console.log(`[getContentPerformance] After deduplication: ${postMap.size} unique posts`);
+
+    // Group by date and count - use date string directly from SQL (no timezone conversion)
+    const dateMap = new Map<string, number>();
+    for (const { published_date, id, platform } of postMap.values()) {
+      dateMap.set(published_date, (dateMap.get(published_date) || 0) + 1);
+      
+      // Debug log for Dec 19 specifically
+      if (published_date === '2025-12-19') {
+        console.log(`[getContentPerformance] ⚠️ Found Dec 19 post: ID=${id}, platform=${platform}, published_date=${published_date}`);
+      }
+    }
+    
+    console.log(`[getContentPerformance] Date counts:`, Array.from(dateMap.entries()));
+
+    // Convert to array and sort
+    const dayRows = Array.from(dateMap.entries())
+      .map(([post_date, post_count]) => ({ post_date, post_count }))
+      .sort((a, b) => b.post_date.localeCompare(a.post_date))
+      .slice(0, 30);
+    
+    console.log(`[getContentPerformance] Final dayRows:`, dayRows);
+
+    const postsByDay = dayRows.map(row => {
+      // post_date is already a string in YYYY-MM-DD format from DATE_FORMAT
+      const dateStr = String(row.post_date || '').trim();
+      
+      return {
+        date: dateStr,
+        count: Number(row.post_count) || 0,
+      };
     });
 
     return {
       totalPosts,
       averageEngagementRate,
       contentTypeBreakdown,
-      bestPostingDays,
+      postsByDay,
     };
   }
 }

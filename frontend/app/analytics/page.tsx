@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
+import { authStorage } from '@/lib/auth';
 import { motion } from 'framer-motion';
 import { 
   Users, 
@@ -25,15 +26,18 @@ export default function AnalyticsPage() {
     try {
       setGenerating(true);
       
-      // Get access token from localStorage
-      const token = localStorage.getItem('access_token');
+      // Get access token from auth storage
+      const token = authStorage.getAccessToken();
       if (!token) {
         alert('Please log in to generate reports');
         return;
       }
 
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
+      console.log('[PDF] Fetching PDF from:', `${apiUrl}/analytics/generate-pdf`);
+
       // Fetch PDF from backend
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api'}/analytics/generate-pdf`, {
+      const response = await fetch(`${apiUrl}/analytics/generate-pdf`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -41,12 +45,40 @@ export default function AnalyticsPage() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to generate PDF');
+        // Try to parse error message
+        let errorMessage = 'Failed to generate PDF report';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch (e) {
+          // If response is not JSON, try to get text
+          try {
+            const errorText = await response.text();
+            if (errorText) {
+              errorMessage = errorText;
+            }
+          } catch (e2) {
+            // Ignore
+          }
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Check if response is actually a PDF
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/pdf')) {
+        // Try to get error message from response
+        const errorText = await response.text();
+        throw new Error(errorText || 'Server did not return a PDF file');
       }
 
       // Get blob and create download link
       const blob = await response.blob();
+      
+      if (blob.size === 0) {
+        throw new Error('PDF file is empty');
+      }
+
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -55,9 +87,14 @@ export default function AnalyticsPage() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
+      
+      console.log('[PDF] PDF downloaded successfully');
     } catch (error) {
-      console.error('Error generating PDF:', error);
-      alert(error instanceof Error ? error.message : 'Failed to generate PDF report. Please try again.');
+      console.error('[PDF] Error generating PDF:', error);
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Failed to generate PDF report. Please try again.';
+      alert(errorMessage);
     } finally {
       setGenerating(false);
     }

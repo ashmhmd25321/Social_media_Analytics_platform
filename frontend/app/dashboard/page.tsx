@@ -43,6 +43,11 @@ interface FollowerTrend {
   platform: string;
 }
 
+interface PostsOverTime {
+  date: string;
+  count: number;
+}
+
 interface EngagementTrend {
   date: string;
   likes: number;
@@ -64,6 +69,7 @@ export default function DashboardPage() {
   const { user, logout } = useAuth();
   const [overview, setOverview] = useState<OverviewMetrics | null>(null);
   const [followerTrends, setFollowerTrends] = useState<FollowerTrend[]>([]);
+  const [postsOverTime, setPostsOverTime] = useState<PostsOverTime[]>([]);
   const [engagementTrends, setEngagementTrends] = useState<EngagementTrend[]>([]);
   const [platformComparison, setPlatformComparison] = useState<PlatformComparison[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,13 +85,14 @@ export default function DashboardPage() {
         setOverview(overviewResponse.data);
       }
 
-      // Fetch follower trends - DISABLE CACHE for fresh data, use day view (not filtered by time range)
-      const followerResponse = await api.get<FollowerTrend[]>(`/analytics/followers/trends?view=day`, false);
-      if (followerResponse.success && followerResponse.data) {
-        setFollowerTrends(Array.isArray(followerResponse.data) ? followerResponse.data : []);
+      // Fetch posts over time (by actual post published dates) - DISABLE CACHE for fresh data
+      const postsOverTimeResponse = await api.get<PostsOverTime[]>(`/analytics/posts/over-time?days=${timeRange}`, false);
+      if (postsOverTimeResponse.success && postsOverTimeResponse.data) {
+        setPostsOverTime(Array.isArray(postsOverTimeResponse.data) ? postsOverTimeResponse.data : []);
       }
 
       // Fetch engagement trends - DISABLE CACHE for fresh data
+      // This uses actual post published dates, so dates should be correct
       const engagementResponse = await api.get<EngagementTrend[]>(`/analytics/engagement/trends?days=${timeRange}`, false);
       if (engagementResponse.success && engagementResponse.data) {
         setEngagementTrends(Array.isArray(engagementResponse.data) ? engagementResponse.data : []);
@@ -94,7 +101,14 @@ export default function DashboardPage() {
       // Fetch platform comparison - DISABLE CACHE for fresh data
       const platformResponse = await api.get<PlatformComparison[]>('/analytics/platforms/comparison', false);
       if (platformResponse.success && platformResponse.data) {
-        setPlatformComparison(Array.isArray(platformResponse.data) ? platformResponse.data : []);
+        // Transform data to include 'name' field for the chart (BarChart expects 'name' for XAxis)
+        const transformedData = Array.isArray(platformResponse.data) 
+          ? platformResponse.data.map(item => ({
+              ...item,
+              name: item.platform, // Add 'name' field for chart XAxis
+            }))
+          : [];
+        setPlatformComparison(transformedData);
       }
     } catch (error) {
       console.error('Error fetching analytics:', error);
@@ -343,22 +357,29 @@ export default function DashboardPage() {
 
               {/* Charts Section */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-8" role="region" aria-label="Analytics charts">
-                {/* Follower Growth Chart */}
-                {followerTrends.length > 0 && (
+                {/* Posts Published Over Time Chart - Uses actual post published dates */}
+                {postsOverTime.length > 0 ? (
                   <LineChart
-                    data={followerTrends.map(t => ({
+                    data={postsOverTime.map(t => ({
                       date: t.date,
-                      'New Followers': t.followers,
+                      'Posts Published': t.count,
                     }))}
-                    dataKey="New Followers"
-                    title="Follower Growth"
-                    color="#06b6d4"
+                    dataKey="Posts Published"
+                    title="Posts Published Over Time"
+                    color="#10b981"
                     delay={0.5}
                   />
+                ) : (
+                  <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg">
+                    <h3 className="text-xl font-bold text-white mb-4">Posts Published Over Time</h3>
+                    <div className="text-center py-8 text-white/60">
+                      <p>No posts found in the selected time range.</p>
+                    </div>
+                  </div>
                 )}
 
-                {/* Engagement Trends Chart */}
-                {engagementTrends.length > 0 && (
+                {/* Engagement Trends Chart - Uses actual post published dates */}
+                {engagementTrends.length > 0 ? (
                   <LineChart
                     data={engagementTrends.map(t => ({
                       date: t.date,
@@ -374,6 +395,13 @@ export default function DashboardPage() {
                     title="Engagement Trends"
                     delay={0.6}
                   />
+                ) : (
+                  <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg">
+                    <h3 className="text-xl font-bold text-white mb-4">Engagement Trends</h3>
+                    <div className="text-center py-8 text-white/60">
+                      <p>No engagement data found in the selected time range.</p>
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -386,6 +414,7 @@ export default function DashboardPage() {
 
                     const facebook = byPlatform('facebook');
                     const youtube = byPlatform('youtube');
+                    const instagram = byPlatform('instagram');
 
                     return (
                       <>
@@ -471,6 +500,55 @@ export default function DashboardPage() {
                                 icon={TrendingUp}
                                 gradient="from-sky-500 to-cyan-500"
                                 delay={0.4}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {instagram && (
+                          <div>
+                            <h3 className="mb-3 text-lg font-semibold text-white">
+                              Instagram Overview
+                            </h3>
+                            {instagram.followers === 0 && instagram.posts === 0 && instagram.engagement === 0 && (
+                              <div className="mb-4 bg-yellow-500/20 backdrop-blur-xl border border-yellow-400/30 rounded-xl p-4">
+                                <p className="text-yellow-200 text-sm">
+                                  <strong>No data yet:</strong> Your Instagram account is connected, but data hasn't been synced. Go to{' '}
+                                  <Link href="/settings/accounts" className="underline hover:text-yellow-100">
+                                    Settings → Accounts
+                                  </Link>{' '}
+                                  and click the "Sync" button to collect your Instagram data.
+                                </p>
+                              </div>
+                            )}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                              <MetricCard
+                                title="Instagram Followers"
+                                value={instagram.followers}
+                                icon={Users}
+                                gradient="from-pink-500 to-rose-500"
+                                delay={0.45}
+                              />
+                              <MetricCard
+                                title="Instagram Posts"
+                                value={instagram.posts}
+                                icon={FileText}
+                                gradient="from-purple-500 to-pink-500"
+                                delay={0.5}
+                              />
+                              <MetricCard
+                                title="Instagram Engagement"
+                                value={instagram.engagement}
+                                icon={Heart}
+                                gradient="from-orange-500 to-red-500"
+                                delay={0.55}
+                              />
+                              <MetricCard
+                                title="IG Avg Engagement Rate"
+                                value={`${instagram.engagementRate.toFixed(2)}%`}
+                                icon={TrendingUp}
+                                gradient="from-yellow-500 to-orange-500"
+                                delay={0.6}
                               />
                             </div>
                           </div>

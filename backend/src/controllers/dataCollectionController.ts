@@ -86,7 +86,18 @@ export class DataCollectionController {
         error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined,
       });
-      res.status(500).json({
+
+      // Check if it's a Facebook-specific error about missing pages
+      const isFacebookError = errorMessage.includes('Facebook Pages') || 
+                               errorMessage.includes('pages_show_list') ||
+                               errorMessage.includes('pages_read_engagement');
+      
+      // Return 400 for client errors (missing permissions, no pages, etc.)
+      // Return 500 for server errors
+      const statusCode = isFacebookError || errorMessage.includes('permission') || 
+                        errorMessage.includes('Invalid') ? 400 : 500;
+
+      res.status(statusCode).json({
         success: false,
         error: 'Failed to collect data',
         message: errorMessage,

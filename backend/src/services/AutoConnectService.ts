@@ -57,8 +57,9 @@ export class AutoConnectService {
   ): Promise<void> {
     try {
       // Fetch user info to get account ID and name
+      // Note: 'username' field is deprecated in v2.0+, so we only request id, name, and picture
       const response = await fetch(
-        `https://graph.facebook.com/v18.0/me?access_token=${credentials.accessToken}&fields=id,name,username,picture`
+        `https://graph.facebook.com/v18.0/me?access_token=${credentials.accessToken}&fields=id,name,picture`
       );
       
       if (!response.ok) {

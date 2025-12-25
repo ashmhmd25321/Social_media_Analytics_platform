@@ -58,6 +58,31 @@ export class AnalyticsController {
   }
 
   /**
+   * Get posts published over time (by actual post dates)
+   * GET /api/analytics/posts/over-time?days=30
+   */
+  async getPostsOverTime(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as any).user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const days = parseInt(req.query.days as string) || 30;
+      const postsOverTime = await analyticsService.getPostsOverTime(userId, days);
+      res.json({ success: true, data: postsOverTime });
+    } catch (error) {
+      console.error('Error fetching posts over time:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch posts over time',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
    * Get engagement trends
    * GET /api/analytics/engagement/trends?days=30
    */
@@ -236,6 +261,8 @@ export class AnalyticsController {
    * GET /api/analytics/generate-pdf
    */
   async generatePDF(req: Request, res: Response): Promise<void> {
+    let filePath: string | null = null;
+    
     try {
       const userId = (req as any).user?.userId;
       if (!userId) {
@@ -243,79 +270,73 @@ export class AnalyticsController {
         return;
       }
 
+      console.log(`[PDF Generation] Starting PDF generation for user ${userId}`);
       const { analyticsPDFService } = await import('../services/AnalyticsPDFService');
-      const { filePath, fileSize } = await analyticsPDFService.generateAnalyticsPDF(userId);
+      const { filePath: generatedFilePath, fileSize } = await analyticsPDFService.generateAnalyticsPDF(userId);
 
       // Send the PDF file
-      const fullPath = path.join(process.cwd(), filePath.replace(/^\//, ''));
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="analytics_report_${Date.now()}.pdf"`);
-      res.setHeader('Content-Length', fileSize.toString());
+      const fullPath = path.join(process.cwd(), generatedFilePath.replace(/^\//, ''));
+      filePath = fullPath;
       
-      const fileStream = fs.createReadStream(fullPath);
-      fileStream.pipe(res);
-      
-      fileStream.on('end', () => {
-        // Clean up file after sending
-        setTimeout(() => {
-          try {
-            fs.unlinkSync(fullPath);
-          } catch (error) {
-            console.error('Error deleting PDF file:', error);
-          }
-        }, 5000); // Delete after 5 seconds
-      });
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to generate PDF report',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  }
-
-  /**
-   * Generate comprehensive analytics PDF
-   * GET /api/analytics/generate-pdf
-   */
-  async generatePDF(req: Request, res: Response): Promise<void> {
-    try {
-      const userId = (req as any).user?.userId;
-      if (!userId) {
-        res.status(401).json({ success: false, message: 'Unauthorized' });
-        return;
+      // Verify file exists before sending
+      if (!fs.existsSync(fullPath)) {
+        throw new Error('PDF file was not created');
       }
 
-      const { analyticsPDFService } = await import('../services/AnalyticsPDFService');
-      const { filePath, fileSize } = await analyticsPDFService.generateAnalyticsPDF(userId);
-
-      // Send the PDF file
-      const fullPath = path.join(process.cwd(), filePath.replace(/^\//, ''));
+      console.log(`[PDF Generation] PDF created successfully: ${fullPath} (${fileSize} bytes)`);
+      
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="analytics_report_${Date.now()}.pdf"`);
       res.setHeader('Content-Length', fileSize.toString());
       
       const fileStream = fs.createReadStream(fullPath);
+      
+      fileStream.on('error', (streamError) => {
+        console.error('[PDF Generation] Stream error:', streamError);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: 'Error streaming PDF file',
+            error: streamError.message,
+          });
+        }
+      });
+      
       fileStream.pipe(res);
       
       fileStream.on('end', () => {
+        console.log(`[PDF Generation] PDF sent successfully, scheduling cleanup for ${fullPath}`);
         // Clean up file after sending
         setTimeout(() => {
           try {
-            fs.unlinkSync(fullPath);
+            if (fs.existsSync(fullPath)) {
+              fs.unlinkSync(fullPath);
+              console.log(`[PDF Generation] Cleaned up PDF file: ${fullPath}`);
+            }
           } catch (error) {
-            console.error('Error deleting PDF file:', error);
+            console.error('[PDF Generation] Error deleting PDF file:', error);
           }
         }, 5000); // Delete after 5 seconds
       });
     } catch (error) {
-      console.error('Error generating PDF:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to generate PDF report',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
+      console.error('[PDF Generation] Error generating PDF:', error);
+      
+      // Clean up file if it exists but there was an error
+      if (filePath && fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (unlinkError) {
+          console.error('[PDF Generation] Error cleaning up failed PDF file:', unlinkError);
+        }
+      }
+      
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Failed to generate PDF report',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
     }
   }
 }

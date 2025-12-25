@@ -81,6 +81,7 @@ class PostModel {
         media_urls, permalink, published_at, created_at, updated_at, is_deleted, metadata
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
+        platform_type = VALUES(platform_type),
         content = VALUES(content),
         content_type = VALUES(content_type),
         media_urls = VALUES(media_urls),

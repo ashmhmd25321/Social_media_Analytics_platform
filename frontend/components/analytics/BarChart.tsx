@@ -21,6 +21,10 @@ interface BarChartProps {
   delay?: number;
   // Simple format: array of { name, value, color }
   simpleData?: Array<{ name: string; value: number; color: string }>;
+  // Custom XAxis dataKey (defaults to 'name')
+  xAxisKey?: string;
+  // If true, render without wrapper (for custom layout)
+  noWrapper?: boolean;
 }
 
 export default function BarChart({
@@ -29,6 +33,8 @@ export default function BarChart({
   title,
   delay = 0,
   simpleData,
+  xAxisKey = 'name',
+  noWrapper = false,
 }: BarChartProps) {
   // If simpleData is provided, use it instead
   const chartData = simpleData 
@@ -39,34 +45,38 @@ export default function BarChart({
     ? simpleData.map((item, index) => ({ key: 'value', name: item.name, color: item.color }))
     : (dataKeys || []);
 
-  return (
-    <motion.div
-      className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
-      initial={{ y: 20, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ delay }}
-    >
-      {title && (
-        <h3 className="text-xl font-bold text-white mb-4">{title}</h3>
-      )}
-      <ResponsiveContainer width="100%" height={300}>
+  // Chart content (reusable)
+  const chartContent = (
+    <ResponsiveContainer width="100%" height={300}>
         <RechartsBarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
           <XAxis
-            dataKey="name"
+            dataKey={xAxisKey}
             stroke="rgba(255,255,255,0.7)"
             style={{ fontSize: '12px' }}
           />
           <YAxis stroke="rgba(255,255,255,0.7)" style={{ fontSize: '12px' }} />
           <Tooltip
             contentStyle={{
-              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              backgroundColor: 'rgba(0, 0, 0, 0.9)',
               border: '1px solid rgba(255,255,255,0.2)',
               borderRadius: '8px',
-              color: '#fff',
+              color: '#ffffff',
+            }}
+            itemStyle={{
+              color: '#ffffff',
+            }}
+            labelStyle={{
+              color: '#ffffff',
             }}
             formatter={(value: any) => value.toLocaleString()}
           />
+          {!simpleData && chartDataKeys.length > 0 && (
+            <Legend 
+              wrapperStyle={{ color: 'rgba(255,255,255,0.9)', paddingTop: '20px' }}
+              iconType="rect"
+            />
+          )}
           {simpleData ? (
             <Bar dataKey="value" radius={[8, 8, 0, 0]}>
               {chartData.map((entry, index) => {
@@ -81,6 +91,34 @@ export default function BarChart({
           )}
         </RechartsBarChart>
       </ResponsiveContainer>
+  );
+
+  // If noWrapper is true, return just the chart content (for custom wrapper)
+  if (noWrapper) {
+    return (
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay }}
+        className="w-full"
+      >
+        {chartContent}
+      </motion.div>
+    );
+  }
+
+  // Otherwise, return with wrapper
+  return (
+    <motion.div
+      className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
+      initial={{ y: 20, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ delay }}
+    >
+      {title && (
+        <h3 className="text-xl font-bold text-white mb-4">{title}</h3>
+      )}
+      {chartContent}
     </motion.div>
   );
 }

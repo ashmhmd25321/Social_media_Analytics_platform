@@ -20,6 +20,9 @@ router.get('/overview', (req, res) => analyticsController.getOverview(req, res))
 // Follower trends
 router.get('/followers/trends', (req, res) => analyticsController.getFollowerTrends(req, res));
 
+// Posts over time (by actual post published dates)
+router.get('/posts/over-time', (req, res) => analyticsController.getPostsOverTime(req, res));
+
 // Engagement trends
 router.get('/engagement/trends', (req, res) => analyticsController.getEngagementTrends(req, res));
 

@@ -134,6 +134,21 @@ class UserSocialAccountModel {
     return (rows[0] as UserSocialAccount) || null;
   }
 
+  async findByUserIdPlatformAndAccountId(
+    userId: number,
+    platformId: number,
+    platformAccountId: string
+  ): Promise<UserSocialAccount | null> {
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT usa.*, sp.name as platform_name, sp.display_name as platform_display_name
+       FROM user_social_accounts usa
+       JOIN social_platforms sp ON usa.platform_id = sp.id
+       WHERE usa.user_id = ? AND usa.platform_id = ? AND usa.platform_account_id = ?`,
+      [userId, platformId, platformAccountId]
+    );
+    return (rows[0] as UserSocialAccount) || null;
+  }
+
   async update(id: number, updates: Partial<UserSocialAccount>): Promise<boolean> {
     let fields = Object.keys(updates)
       .filter((key) => key !== 'id' && key !== 'metadata')

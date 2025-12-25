@@ -5,10 +5,9 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
 import { motion } from 'framer-motion';
-import { Users, TrendingUp, Clock, MapPin, ArrowLeft, Download } from 'lucide-react';
+import { Users, TrendingUp, ArrowLeft, Download } from 'lucide-react';
 import Link from 'next/link';
-import { LineChart, MetricCard } from '@/components/analytics';
-import { BarChart } from 'recharts';
+import { LineChart, MetricCard, BarChart } from '@/components/analytics';
 import { usePageRefresh } from '@/hooks/usePageRefresh';
 
 interface AudienceMetrics {
@@ -200,82 +199,41 @@ export default function AudienceAnalyticsPage() {
                   }))}
                   dataKey="New Followers"
                   color="#06b6d4"
+                  noWrapper={true}
                 />
               </div>
             </motion.div>
 
-            {/* Platform Breakdown */}
+            {/* Followers Count by Platform */}
             <motion.div
-              className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.5 }}
             >
-              <h3 className="text-xl font-bold text-white mb-4">Platform Breakdown</h3>
-              {metrics?.platformBreakdown && metrics.platformBreakdown.length > 0 ? (
-                <div className="space-y-4">
-                  {metrics.platformBreakdown.map((platform, index) => (
-                    <div key={index}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-white font-medium capitalize">{platform.platform}</span>
-                        <span className="text-white/70">{platform.followers.toLocaleString()}</span>
-                      </div>
-                      <div className="w-full bg-white/10 rounded-full h-2">
-                        <div
-                          className="bg-gradient-to-r from-primary-500 to-secondary-500 h-2 rounded-full transition-all"
-                          style={{ width: `${platform.percentage}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-white/60">
-                  <p>No platform data available.</p>
-                  <p className="text-sm mt-2">Connect and sync your social media accounts to see follower breakdown.</p>
-                </div>
-              )}
+              <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg">
+                <h3 className="text-xl font-bold text-white mb-4">Followers Count by Platform</h3>
+                {metrics?.platformBreakdown && metrics.platformBreakdown.length > 0 ? (
+                  <BarChart
+                    data={metrics.platformBreakdown.map(p => ({
+                      name: p.platform.charAt(0).toUpperCase() + p.platform.slice(1),
+                      followers: p.followers,
+                    }))}
+                    dataKeys={[
+                      { key: 'followers', name: 'Followers', color: '#8b5cf6' },
+                    ]}
+                    delay={0.5}
+                    noWrapper={true}
+                  />
+                ) : (
+                  <div className="text-center py-8 text-white/60">
+                    <p>No platform data available.</p>
+                    <p className="text-sm mt-2">Connect and sync your social media accounts to see follower breakdown.</p>
+                  </div>
+                )}
+              </div>
             </motion.div>
           </div>
 
-          {/* Peak Activity Hours */}
-          <motion.div
-            className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.6 }}
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <Clock className="w-6 h-6 text-primary-300" />
-              <h3 className="text-xl font-bold text-white">Peak Activity Hours</h3>
-            </div>
-            {metrics?.peakActivityHours && metrics.peakActivityHours.length > 0 ? (
-              <div className="grid grid-cols-12 gap-2">
-                {Array.from({ length: 24 }, (_, hour) => {
-                  const activity = metrics.peakActivityHours.find(a => a.hour === hour)?.activity || 0;
-                  const maxActivity = Math.max(...metrics.peakActivityHours.map(a => a.activity), 1);
-                  const height = maxActivity > 0 ? (activity / maxActivity) * 100 : 0;
-                  
-                  return (
-                    <div key={hour} className="flex flex-col items-center">
-                      <div className="w-full bg-white/10 rounded-t-lg relative" style={{ height: '120px' }}>
-                        <div
-                          className="absolute bottom-0 w-full bg-gradient-to-t from-primary-500 to-secondary-500 rounded-t-lg transition-all"
-                          style={{ height: `${height}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-white/60 mt-2">{hour % 12 || 12}{hour >= 12 ? 'PM' : 'AM'}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-white/60">
-                <p>No activity data available yet.</p>
-                <p className="text-sm mt-2">Activity hours will appear after you sync your accounts and have posts with engagement data.</p>
-              </div>
-            )}
-          </motion.div>
         </div>
       </div>
     </ProtectedRoute>

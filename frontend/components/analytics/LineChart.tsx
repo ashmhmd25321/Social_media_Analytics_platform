@@ -20,6 +20,7 @@ interface LineChartProps {
   title?: string;
   color?: string;
   delay?: number;
+  noWrapper?: boolean;
 }
 
 export default function LineChart({
@@ -29,19 +30,12 @@ export default function LineChart({
   title,
   color = '#8b5cf6',
   delay = 0,
+  noWrapper = false,
 }: LineChartProps) {
   const keysToRender = dataKeys || (dataKey ? [{ key: dataKey, name: dataKey, color }] : []);
-  return (
-    <motion.div
-      className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
-      initial={{ y: 20, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ delay }}
-    >
-      {title && (
-        <h3 className="text-xl font-bold text-white mb-4">{title}</h3>
-      )}
-      <ResponsiveContainer width="100%" height={300}>
+  
+  const chartContent = (
+    <ResponsiveContainer width="100%" height={300}>
         <RechartsLineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
           <XAxis
@@ -113,6 +107,34 @@ export default function LineChart({
           ))}
         </RechartsLineChart>
       </ResponsiveContainer>
+  );
+
+  // If noWrapper is true, return just the chart content (for custom wrapper)
+  if (noWrapper) {
+    return (
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay }}
+        className="w-full"
+      >
+        {chartContent}
+      </motion.div>
+    );
+  }
+
+  // Otherwise, return with wrapper
+  return (
+    <motion.div
+      className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border-2 border-white/20 shadow-lg"
+      initial={{ y: 20, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ delay }}
+    >
+      {title && (
+        <h3 className="text-xl font-bold text-white mb-4">{title}</h3>
+      )}
+      {chartContent}
     </motion.div>
   );
 }
